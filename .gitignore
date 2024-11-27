@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+.jupyter/
+jupyter_notebook_config.py
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Virtual Environment
+venv/
+ENV/
+.env
+.venv
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Model files and datasets
+model/
+*.h5
+*.pkl
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.model
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# Project specific
+data/raw/
+data/processed/
+outputs/
+results/
+.cache/
+wandb/
