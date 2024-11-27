@@ -67,3 +67,8 @@ graph TD
     E --> F[Enhancement Layer/BiLSTM]
     F --> G[Output]
 ```
+## run Docker:
+```
+docker build -t sentiment-analysis .
+docker run -p 8888:8888 -v $(pwd):/workspace sentiment-analysis
+```
