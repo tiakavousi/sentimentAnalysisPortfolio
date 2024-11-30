@@ -1,6 +1,6 @@
 class ModelConfig:
     BERT_MODEL = 'distilbert-base-uncased'
-    MAX_LENGTH = 192
+    MAX_LENGTH = 200
     LSTM_UNITS = 156
     ATTENTION_DIM = 96
     FUSION_LAYERS = [320, 160]
