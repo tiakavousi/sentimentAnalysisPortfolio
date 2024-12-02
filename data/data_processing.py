@@ -4,6 +4,9 @@ from sklearn.model_selection import train_test_split
 
 class SarcasmDetector:
     def __init__(self):
+         # Initialize the sarcasm detector with strong markers, context-dependent 
+        # markers, punctuation signals, and emoji signals that indicate sarcasm.
+        
         # Strong sarcasm indicators (high confidence)
         self.strong_markers = [
             'yeah right',
@@ -33,7 +36,6 @@ class SarcasmDetector:
                 'punctuation': ['...', '!?'],
                 'emoji': ['🙄', '😒']
             }
-            # Add more contextual markers with their signals
         }
         
         # Punctuation that might indicate sarcasm when combined with other signals
@@ -43,6 +45,8 @@ class SarcasmDetector:
         self.emoji_signals = ['🙄', '😒', '😏', ':/']
 
     def detect_sarcasm(self, text):
+        # Detect sarcasm in the given text by checking for strong markers 
+        # and contextual markers combined with additional signals.
         text_lower = text.lower()
         
         # Check for strong markers (these alone indicate sarcasm)
@@ -65,6 +69,7 @@ class SarcasmDetector:
         return False, None
 
     def process_text(self, text):
+        # Process the text to detect sarcasm and mark it if found.
         is_sarcastic, marker = self.detect_sarcasm(text)
         if is_sarcastic:
             text += f" _SARC_{marker}"
@@ -72,6 +77,8 @@ class SarcasmDetector:
 
 class DataProcessor:
     def __init__(self):
+        # Initialize the data processor with contraction mappings, special token 
+        # mappings, negation words, and a sarcasm detector instance.
         self.contraction_map = {
             "can't": "cannot",
             "won't": "will not",
@@ -120,7 +127,8 @@ class DataProcessor:
 
 
     def _calculate_polarity_score(self, text):
-        """Calculate polarity score based on sentiment mixed signals"""
+        # Calculate a polarity score (0 to 1) indicating the degree of mixed sentiment in the text,
+        # considering contrasting sentiment markers, 'but' clauses, and negations.
         processed_text = self.preprocess_text(text)
         
         # Check for contrasting sentiment markers
@@ -154,6 +162,8 @@ class DataProcessor:
     
     
     def load_data(self, samples_per_class=2000):
+        # Load the Yelp Review dataset, balance the classes by sampling an equal 
+        # number of reviews per sentiment class, and shuffle the data.
         dataset = load_dataset("yelp_review_full")
         df = pd.DataFrame(dataset['train'])
         df['sentiment'] = df['label'].apply(
@@ -171,7 +181,8 @@ class DataProcessor:
         return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
 
     def split_data(self, df, test_size=0.1):
-
+        # Split the data into train and validation sets, stratifying by sentiment.
+        # Return the text and label dictionaries for each split.
         train_df, val_df = train_test_split(
             df,
             test_size=test_size,
@@ -196,20 +207,10 @@ class DataProcessor:
         }
         return train_texts, val_texts, train_labels, val_labels
     
-        # return train_test_split(
-        #     df['text'], 
-        #     {
-        #         'sentiment': df['sentiment'],
-        #         'sarcasm': df['text'].apply(lambda x: '_SARC_' in x),
-        #         'negation': df['text'].apply(lambda x: '_NEG_' in x),
-        #         'polarity': df['text'].apply(self._calculate_polarity_score)
-        #     },
-        #     test_size=test_size,
-        #     random_state=42,
-        #     stratify=df['sentiment']
-        # )
-    
     def preprocess_text(self, text):
+        # Preprocess the text by expanding contractions, handling special tokens,
+        # marking negations, and detecting sarcasm using the enhanced detector.
+
         # Expand contractions
         for contraction, expanded in self.contraction_map.items():
             text = text.replace(contraction, expanded)
@@ -229,6 +230,9 @@ class DataProcessor:
 
     def process_batch(self, texts):
         """Process a batch of texts with detailed analysis"""
+        # Process a batch of texts with detailed analysis, including sarcasm detection,
+        # negation marking, and special token handling. Return the processed texts
+        # and analysis counts.
         processed_texts = []
         analysis = {
             'sarcasm_count': 0,
