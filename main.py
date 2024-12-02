@@ -7,25 +7,29 @@ from models.sentiment_model import EnhancedDistilBertForSentiment, ModelTrainer
 
 
 class SentimentAnalyzer:
+    """Main class for sentiment analysis using DistilBERT with enhanced features"""
+    
     def __init__(self):
+        # Initialize core components
         self.data_processor = DataProcessor()
         self.model = None
         self.tokenizer = None
         self.trainer = None
     
     def process_data(self):
+        """Load, split and preprocess training data with example outputs"""
         # Load and process data
         df = self.data_processor.load_data()
         train_texts, val_texts, train_labels, val_labels = self.data_processor.split_data(df)
         
-        # Process some example texts to test preprocessing
+        # Test preprocessing on diverse examples
         test_texts = [
             "Great service and amazing food!",
             "Terrible experience, would not recommend.",
             "The food was okay, but the service could be better.",
-            "Yeah right, like that's going to work...",
-            "Thanks a lot... now everything is broken 🙄",
-            "Obviously this is the best restaurant ever..."
+            "Yeah right, like that's going to work...",  # Sarcasm
+            "Thanks a lot... now everything is broken 🙄",  # Sarcasm with emoji
+            "Obviously this is the best restaurant ever..."  # Sarcasm
         ]
         
         print("\nPreprocessing Examples:")
@@ -37,33 +41,32 @@ class SentimentAnalyzer:
         return train_texts, val_texts, train_labels, val_labels
         
     def initialize_model(self):
+        """Initialize and compile model with multi-task learning setup"""
+        # Load pre-trained tokenizer and model
         self.tokenizer = DistilBertTokenizer.from_pretrained(ModelConfig.BERT_MODEL)
         self.model = EnhancedDistilBertForSentiment()
         self.trainer = ModelTrainer(self.model, self.tokenizer)
 
-        # Compile model
+        # Learning rate decay schedule
         lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
             ModelConfig.LEARNING_RATE,
             decay_steps=ModelConfig.DECAY_STEPS,
             decay_rate=ModelConfig.DECAY_RATE
         )
 
-         # Define losses for each output
+        # Multi-task learning configuration
         losses = {
             'sentiment': 'sparse_categorical_crossentropy',
             'sarcasm': 'binary_crossentropy',
             'negation': 'binary_crossentropy',
             'polarity': 'mse'  # for multipolarity score
         }
-        # Define metrics for each output
         metrics = {
             'sentiment': ['accuracy'],
             'sarcasm': ['accuracy'],
             'negation': ['accuracy'],
             'polarity': ['mae']
         }
-
-        # Define loss weights
         loss_weights = {
             'sentiment': 1.0,
             'sarcasm': 0.5,
@@ -71,6 +74,7 @@ class SentimentAnalyzer:
             'polarity': 0.3
         }
 
+        # Compile with Adam optimizer
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=lr_schedule),
             loss=losses,
@@ -79,23 +83,20 @@ class SentimentAnalyzer:
         )
 
     def train(self):
-        """
-        Train the model using processed data with multiple outputs.
-        Returns training history for visualization.
-        """
-        # Load and process data
+        """Train model on processed data"""
+        # Load and split data
         df = self.data_processor.load_data()
         train_texts, val_texts, train_labels, val_labels = self.data_processor.split_data(df)
         
-        # Prepare datasets and train
+        # Create TF datasets
         train_dataset = self.trainer.prepare_dataset(train_texts, train_labels)
         val_dataset = self.trainer.prepare_dataset(val_texts, val_labels)
         
-        # Train using ModelTrainer
         return self.trainer.train(train_dataset, val_dataset)
 
-
     def predict(self, text):
+        """Generate comprehensive sentiment analysis for input text"""
+        # Preprocess and tokenize
         processed_text = self.data_processor.preprocess_text(text)
         inputs = self.tokenizer(
             processed_text,
@@ -105,17 +106,16 @@ class SentimentAnalyzer:
             max_length=ModelConfig.MAX_LENGTH
         )
         
+        # Get model predictions
         predictions = self.model(inputs)
 
-        # Process sentiment probabilities
+        # Process outputs
         sentiment_probs = tf.nn.softmax(predictions['sentiment'], axis=-1).numpy()[0]
-
-        # Process other outputs
         sarcasm_prob = tf.nn.sigmoid(predictions['sarcasm']).numpy()[0][0]
         negation_prob = tf.nn.sigmoid(predictions['negation']).numpy()[0][0]
         polarity_score = predictions['polarity'].numpy()[0][0]
         
-        # Calculate multipolarity based on sentiment distribution and polarity score
+        # Detect multipolarity based on sentiment distribution
         is_multipolar = (np.max(sentiment_probs) < 0.6) or (polarity_score > 0.5)
     
         return {
@@ -138,11 +138,10 @@ class SentimentAnalyzer:
             },
             'processed_text': processed_text
         }
-    
-
 
     @staticmethod
     def demonstrate_marking():
+        """Demonstrate model's capability on diverse test cases"""
         analyzer = SentimentAnalyzer()
         analyzer.initialize_model()
         
@@ -178,14 +177,15 @@ class SentimentAnalyzer:
 
 
 def main():
+    """Initialize model, train, and run test predictions"""
     analyzer = SentimentAnalyzer()
     analyzer.initialize_model()
     
-    # Train model
+    # Train and visualize
     history = analyzer.train()
     AnalysisUtils.plot_training_history(history)
     
-    # Test predictions
+    # Test on sample reviews
     test_reviews = [
         "Great service and amazing food!",
         "Terrible experience, would not recommend.",
