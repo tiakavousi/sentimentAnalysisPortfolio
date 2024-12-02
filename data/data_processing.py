@@ -117,6 +117,41 @@ class DataProcessor:
         }
         self.negation_words = ['not', 'never', "n't", 'no', 'neither', 'nor']
         self.sarcasm_detector = SarcasmDetector()
+
+
+    def _calculate_polarity_score(self, text):
+        """Calculate polarity score based on sentiment mixed signals"""
+        processed_text = self.preprocess_text(text)
+        
+        # Check for contrasting sentiment markers
+        positive_markers = ['good', 'great', 'excellent', 'amazing', 'wonderful']
+        negative_markers = ['bad', 'terrible', 'horrible', 'awful', 'poor']
+        
+        # Count positive and negative markers
+        pos_count = sum(marker in processed_text.lower() for marker in positive_markers)
+        neg_count = sum(marker in processed_text.lower() for marker in negative_markers)
+        
+        # Check for 'but' clauses which often indicate mixed sentiment
+        has_but = 'but' in processed_text.lower()
+        
+        # Check for negation which might flip sentiment
+        has_negation = '_NEG_' in processed_text
+        
+        # Calculate score (0 to 1, higher means more mixed/polar)
+        if has_but:
+            score = 0.7  # Base score for contrasting statements
+        else:
+            score = 0.3  # Base score for regular statements
+        
+        # Adjust score based on sentiment markers
+        if pos_count > 0 and neg_count > 0:
+            score += 0.3  # Increase score for mixed sentiment
+        
+        if has_negation:
+            score += 0.2  # Increase score for negation
+            
+        return min(score, 1.0)  # Cap score at 1.0
+    
     
     def load_data(self, samples_per_class=2000):
         dataset = load_dataset("yelp_review_full")
@@ -136,13 +171,43 @@ class DataProcessor:
         return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
 
     def split_data(self, df, test_size=0.1):
-        return train_test_split(
-            df['text'], 
-            df['sentiment'],
+
+        train_df, val_df = train_test_split(
+            df,
             test_size=test_size,
             random_state=42,
             stratify=df['sentiment']
         )
+        train_texts = train_df['text']
+        val_texts = val_df['text']
+        # Create label dictionaries
+        train_labels = {
+            'sentiment': train_df['sentiment'],
+            'sarcasm': train_df['text'].apply(lambda x: '_SARC_' in x),
+            'negation': train_df['text'].apply(lambda x: '_NEG_' in x),
+            'polarity': train_df['text'].apply(self._calculate_polarity_score)
+        }
+        
+        val_labels = {
+            'sentiment': val_df['sentiment'],
+            'sarcasm': val_df['text'].apply(lambda x: '_SARC_' in x),
+            'negation': val_df['text'].apply(lambda x: '_NEG_' in x),
+            'polarity': val_df['text'].apply(self._calculate_polarity_score)
+        }
+        return train_texts, val_texts, train_labels, val_labels
+    
+        # return train_test_split(
+        #     df['text'], 
+        #     {
+        #         'sentiment': df['sentiment'],
+        #         'sarcasm': df['text'].apply(lambda x: '_SARC_' in x),
+        #         'negation': df['text'].apply(lambda x: '_NEG_' in x),
+        #         'polarity': df['text'].apply(self._calculate_polarity_score)
+        #     },
+        #     test_size=test_size,
+        #     random_state=42,
+        #     stratify=df['sentiment']
+        # )
     
     def preprocess_text(self, text):
         # Expand contractions
