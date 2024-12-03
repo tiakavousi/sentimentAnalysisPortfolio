@@ -101,7 +101,7 @@ class ModelTrainer:
         
         # Apply shuffling, batching, and prefetching
         return (dataset
-                .shuffle(10000)
+                .shuffle(ModelConfig.SHUFFLE_BUFFER_SIZE)
                 .batch(ModelConfig.BATCH_SIZE)
                 .prefetch(tf.data.AUTOTUNE))
     
@@ -124,7 +124,7 @@ class ModelTrainer:
         return [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss',
-                patience=2,
+                patience=ModelConfig.EARLY_STOPPING_PATIENCE,
                 restore_best_weights=True
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
@@ -132,5 +132,12 @@ class ModelTrainer:
                 factor=0.5,
                 patience=1,
                 min_lr=1e-6
+            ),
+            # Added checkpoint callback
+            tf.keras.callbacks.ModelCheckpoint(
+                'best_model.h5',
+                monitor='val_loss',
+                save_best_only=True,
+                mode='min'
             )
         ]

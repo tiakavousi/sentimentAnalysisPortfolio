@@ -1,6 +1,7 @@
 from datasets import load_dataset
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from config.model_config import ModelConfig
 
 class SarcasmDetector:
     def __init__(self):
@@ -161,15 +162,18 @@ class DataProcessor:
         return min(score, 1.0)  # Cap score at 1.0
     
     
-    def load_data(self, samples_per_class=2000):
+    def load_data(self, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
         # Load the Yelp Review dataset, balance the classes by sampling an equal 
         # number of reviews per sentiment class, and shuffle the data.
         dataset = load_dataset("yelp_review_full")
         df = pd.DataFrame(dataset['train'])
+
+        # adding a new column to the dataset named "sentiment"
         df['sentiment'] = df['label'].apply(
             lambda x: 0 if x <= 1 else (1 if x == 2 else 2)
         )
-        
+
+        # Create balanced dataset with 2000 samples per class
         df_balanced = pd.DataFrame()
         for sentiment in range(3):
             class_data = df[df['sentiment'] == sentiment].sample(
@@ -177,10 +181,12 @@ class DataProcessor:
                 random_state=42
             )
             df_balanced = pd.concat([df_balanced, class_data])
-        
-        return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    def split_data(self, df, test_size=0.1):
+         # Shuffle the final dataset
+        return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+       
+
+    def split_data(self, df, test_size= ModelConfig.VALIDATION_SPLIT):
         # Split the data into train and validation sets, stratifying by sentiment.
         # Return the text and label dictionaries for each split.
         train_df, val_df = train_test_split(
@@ -228,6 +234,7 @@ class DataProcessor:
         
         return processed_text
 
+    
     def process_batch(self, texts):
         """Process a batch of texts with detailed analysis"""
         # Process a batch of texts with detailed analysis, including sarcasm detection,

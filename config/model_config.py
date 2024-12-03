@@ -11,6 +11,12 @@ class ModelConfig:
     DECAY_STEPS = 1000
     DECAY_RATE = 0.9
     EPOCHS = 5
+    SHUFFLE_BUFFER_SIZE = 10000
+    SAMPLES_PER_CLASS = 2000
+    # CHUNK_SIZE = 1000
+
+    VALIDATION_SPLIT = 0.1  # 10% for validation
+    EARLY_STOPPING_PATIENCE = 2  # Stop if no improvement for 3 epochs
 
     SPECIAL_TOKENS = {
         'SARC': '_SARC_',
