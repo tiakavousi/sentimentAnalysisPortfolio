@@ -5,7 +5,7 @@ from config.model_config import ModelConfig
 
 class SarcasmDetector:
     def __init__(self):
-         # Initialize the sarcasm detector with strong markers, context-dependent 
+        # Initialize the sarcasm detector with strong markers, context-dependent 
         # markers, punctuation signals, and emoji signals that indicate sarcasm.
         
         # Strong sarcasm indicators (high confidence)
@@ -20,7 +20,7 @@ class SarcasmDetector:
             'big surprise'
         ]
         
-        # Context-dependent markers (need additional signals)
+        # Context-dependent markers
         self.contextual_markers = {
             'thanks a lot': {
                 'negative_signals': ['but', 'for nothing', 'now', "didn't", 'not'],
