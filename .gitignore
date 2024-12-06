@@ -69,4 +69,4 @@ wandb/
 
 
 saved_models/*
-!saved_models/.gitkeepw
+!saved_models/.gitkeepw.ipynb_checkpoints/
