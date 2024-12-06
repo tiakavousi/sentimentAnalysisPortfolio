@@ -1,6 +1,6 @@
 class ModelConfig:
     BERT_MODEL = 'distilbert-base-uncased'
-    MAX_LENGTH = 200
+    MAX_LENGTH = 256 
     LSTM_UNITS = 156
     ATTENTION_DIM = 96
     FUSION_LAYERS = [320, 160]
@@ -17,6 +17,27 @@ class ModelConfig:
 
     VALIDATION_SPLIT = 0.1  # 10% for validation
     EARLY_STOPPING_PATIENCE = 2  # Stop if no improvement for 3 epochs
+    LOSSES = {
+        'sentiment': 'sparse_categorical_crossentropy',
+        'sarcasm': 'binary_crossentropy',
+        'negation': 'binary_crossentropy',
+        'polarity': 'mse'
+    }
+    
+    METRICS = {
+        'sentiment': ['accuracy'],
+        'sarcasm': ['accuracy'],
+        'negation': ['accuracy'],
+        'polarity': ['mae']
+    }
+    
+    LOSS_WEIGHTS = {
+        'sentiment': 1.0,
+        'sarcasm': 0.5,
+        'negation': 0.5,
+        'polarity': 0.3
+    }
+
 
     SPECIAL_TOKENS = {
         'SARC': '_SARC_',
