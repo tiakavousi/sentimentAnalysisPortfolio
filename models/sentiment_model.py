@@ -4,7 +4,6 @@ from transformers import DistilBertTokenizer
 from config.model_config import ModelConfig
 
 class EnhancedDistilBertForSentiment(tf.keras.Model):
-
     def __init__(self):
         super().__init__()
         self.distilbert = TFDistilBertModel.from_pretrained(ModelConfig.BERT_MODEL)
@@ -34,6 +33,7 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         self.dropout1 = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[0])
         self.dropout2 = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[1])
 
+
     def _init_task_layers(self):
         """Initialize task-specific output layers"""
         self.sentiment_classifier = tf.keras.layers.Dense(ModelConfig.NUM_CLASSES, activation='softmax', name='sentiment')
@@ -47,6 +47,7 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         attention_weights = tf.matmul(query, key, transpose_b=True)
         attention_weights = tf.nn.softmax(attention_weights, axis=-1)
         return tf.matmul(attention_weights, value)
+    
     
     def call(self, inputs, training=False):
         # Get BERT embeddings
@@ -128,6 +129,7 @@ class ModelTrainer:
             'input_ids': tf.convert_to_tensor(encoded['input_ids'], dtype=tf.int32),
             'attention_mask': tf.convert_to_tensor(encoded['attention_mask'], dtype=tf.int32)
         }
+
         if labels is None:
             return features
         # Prepare labels with proper shapes

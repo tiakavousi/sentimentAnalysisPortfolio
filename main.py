@@ -81,7 +81,7 @@ class SentimentAnalyzer:
         sarcasm_prob = tf.nn.sigmoid(predictions['sarcasm']).numpy()[0][0]
         negation_prob = tf.nn.sigmoid(predictions['negation']).numpy()[0][0]
         polarity_score = predictions['polarity'].numpy()[0][0]
-            
+
         # Detect multipolarity based on sentiment distribution
         is_multipolar = (np.max(sentiment_probs) < 0.6) or (polarity_score > 0.5)
     

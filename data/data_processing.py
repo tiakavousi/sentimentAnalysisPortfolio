@@ -43,39 +43,40 @@ class TextSignals:
 
     CONTRACTION_MAP = {
         "can't": "cannot",
-            "won't": "will not",
-            "n't": " not",
-            "'re": " are",
-            "'s": " is",
-            "'d": " would",
-            "'ll": " will",
-            "'ve": " have",
-            "'m": " am",
-            "it's": "it is",
-            "let's": "let us",
-            "who's": "who is",
-            "what's": "what is",
-            "there's": "there is",
-            "we're": "we are",
-            "they're": "they are",
-            "you're": "you are",
-            "he's": "he is",
-            "she's": "she is",
-            "isn't": "is not",
-            "aren't": "are not",
-            "wasn't": "was not",
-            "weren't": "were not",
-            "hasn't": "has not",
-            "haven't": "have not",
-            "doesn't": "does not",
-            "don't": "do not",
-            "didn't": "did not",
-            "shouldn't": "should not",
-            "wouldn't": "would not",
-            "couldn't": "could not",
-            "mightn't": "might not",
-            "mustn't": "must not",
+        "won't": "will not",
+        "n't": " not",
+        "'re": " are",
+        "'s": " is",
+        "'d": " would",
+        "'ll": " will",
+        "'ve": " have",
+        "'m": " am",
+        "it's": "it is",
+        "let's": "let us",
+        "who's": "who is",
+        "what's": "what is",
+        "there's": "there is",
+        "we're": "we are",
+        "they're": "they are",
+        "you're": "you are",
+        "he's": "he is",
+        "she's": "she is",
+        "isn't": "is not",
+        "aren't": "are not",
+        "wasn't": "was not",
+        "weren't": "were not",
+        "hasn't": "has not",
+        "haven't": "have not",
+        "doesn't": "does not",
+        "don't": "do not",
+        "didn't": "did not",
+        "shouldn't": "should not",
+        "wouldn't": "would not",
+        "couldn't": "could not",
+        "mightn't": "might not",
+        "mustn't": "must not",
         }
+
 
     @staticmethod
     def clean_urls(text):
@@ -182,28 +183,6 @@ class DataProcessor:
         return min(score, 1.0)  # Cap score at 1.0
     
     
-    # def load_data(self, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
-    #     # Load the Yelp Review dataset, balance the classes by sampling an equal 
-    #     # number of reviews per sentiment class, and shuffle the data.
-    #     dataset = load_dataset("yelp_review_full")
-    #     df = pd.DataFrame(dataset['train'])
-
-    #     # adding a new column to the dataset named "sentiment"
-    #     df['sentiment'] = df['label'].apply(
-    #         lambda x: 0 if x <= 1 else (1 if x == 2 else 2)
-    #     )
-
-    #     # Create balanced dataset with 2000 samples per class
-    #     df_balanced = pd.DataFrame()
-    #     for sentiment in range(3):
-    #         class_data = df[df['sentiment'] == sentiment].sample(
-    #             n=samples_per_class, 
-    #             random_state=42
-    #         )
-    #         df_balanced = pd.concat([df_balanced, class_data])
-
-    #      # Shuffle the final dataset
-    #     return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
     
     def load_data(self):
         """Load the Yelp Review dataset and convert to DataFrame"""
@@ -220,7 +199,6 @@ class DataProcessor:
     def create_balanced_dataset(self, df, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
         """Create a balanced dataset with equal samples per sentiment class"""
         df_balanced = pd.DataFrame()
-        
         for sentiment in range(3):
             class_data = df[df['sentiment'] == sentiment].sample(
                 n=samples_per_class, 
@@ -231,9 +209,6 @@ class DataProcessor:
         # Shuffle the final dataset
         return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
     
-
-
-
 
 
     def split_data(self, df, val_size=0.2, test_size=0.1):
@@ -291,33 +266,6 @@ class DataProcessor:
         
         return train_texts, val_texts, test_texts, train_labels, val_labels, test_labels
 
-    # def split_data(self, df, test_size= ModelConfig.VALIDATION_SPLIT):
-    #     # Split the data into train and validation sets, stratifying by sentiment.
-    #     # Return the text and label dictionaries for each split.
-    #     train_df, val_df = train_test_split(
-    #         df,
-    #         test_size=test_size,
-    #         random_state=42,
-    #         stratify=df['sentiment']
-    #     )
-
-    #     train_texts = train_df['text'].to_numpy()
-    #     val_texts = val_df['text'].to_numpy()
-    #     # Create label dictionaries
-    #     train_labels = {
-    #         'sentiment': train_df['sentiment'].to_numpy(),
-    #         'sarcasm': train_df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
-    #         'negation': train_df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
-    #         'polarity': train_df['text'].apply(self._calculate_polarity_score).to_numpy()
-    #     }
-        
-    #     val_labels = {
-    #         'sentiment': val_df['sentiment'].to_numpy(),
-    #         'sarcasm': val_df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
-    #         'negation': val_df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
-    #         'polarity': val_df['text'].apply(self._calculate_polarity_score).to_numpy()
-    #     }
-    #     return train_texts, val_texts, train_labels, val_labels
     
     
     def preprocess_text(self, text):
