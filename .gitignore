@@ -66,3 +66,13 @@ outputs/
 results/
 .cache/
 wandb/
+
+
+saved_models/*
+!saved_models/.gitkeepw.ipynb_checkpoints/
+saved_models/
+.ipynb_checkpoints/
+LoadModel.ipynb
+*.h5
+*.data-*
+*.index

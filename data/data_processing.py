@@ -1,10 +1,98 @@
 from datasets import load_dataset
 import pandas as pd
+import re
 from sklearn.model_selection import train_test_split
+from config.model_config import ModelConfig
+
+
+class TextSignals:
+    PUNCTUATION = ['!!!', '...', '!?', '??']
+    EMOJI = ['🙄', '😒', '😏', ':/']
+    NEGATION_WORDS = ['not', 'never', "n't", 'no', 'neither', 'nor']
+    
+    # URL regex pattern
+    URL_PATTERN = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    WWW_PATTERN = r'www\.(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    
+    SPECIAL_TOKENS = {
+        '!!!': ' MULTI_EXCLAIM ',
+        '...': ' ELLIPSIS ',
+        '??': ' MULTI_QUESTION ',
+        ':/': ' SKEPTICAL_EMOJI ',
+        ':|': ' NEUTRAL_EMOJI ',
+        ':)': ' HAPPY_EMOJI ',
+        ':))': ' VERY_HAPPY_EMOJI ',
+        ':(': ' SAD_EMOJI ',
+        ':((': ' VERY_SAD_EMOJI ',
+        ';)': ' WINK_EMOJI ',
+        '🙄': ' EYE_ROLL_EMOJI ',
+        '😒': ' UNAMUSED_EMOJI ',
+        '😏': ' SMIRK_EMOJI ',
+        '😤': ' FRUSTRATED_EMOJI ',
+        '🙃': ' UPSIDE_DOWN_EMOJI ',
+        '😑': ' EXPRESSIONLESS_EMOJI ',
+        '😐': ' NEUTRAL_FACE_EMOJI ',
+        '🤔': ' THINKING_EMOJI ',
+        '🫤': ' DIAGONAL_MOUTH_EMOJI ',
+        '😅': ' SWEAT_SMILE_EMOJI ',
+        '😂': ' LAUGH_TEARS_EMOJI ',
+        '🤣': ' ROFL_EMOJI ',
+        '👍': ' THUMBS_UP_EMOJI ',
+        '👎': ' THUMBS_DOWN_EMOJI ',
+    }
+
+    CONTRACTION_MAP = {
+        "can't": "cannot",
+        "won't": "will not",
+        "n't": " not",
+        "'re": " are",
+        "'s": " is",
+        "'d": " would",
+        "'ll": " will",
+        "'ve": " have",
+        "'m": " am",
+        "it's": "it is",
+        "let's": "let us",
+        "who's": "who is",
+        "what's": "what is",
+        "there's": "there is",
+        "we're": "we are",
+        "they're": "they are",
+        "you're": "you are",
+        "he's": "he is",
+        "she's": "she is",
+        "isn't": "is not",
+        "aren't": "are not",
+        "wasn't": "was not",
+        "weren't": "were not",
+        "hasn't": "has not",
+        "haven't": "have not",
+        "doesn't": "does not",
+        "don't": "do not",
+        "didn't": "did not",
+        "shouldn't": "should not",
+        "wouldn't": "would not",
+        "couldn't": "could not",
+        "mightn't": "might not",
+        "mustn't": "must not",
+        }
+
+
+    @staticmethod
+    def clean_urls(text):
+        """Remove URLs from text."""
+        # Remove http(s) URLs
+        text = re.sub(TextSignals.URL_PATTERN, ' ', text)
+        # Remove www. URLs
+        text = re.sub(TextSignals.WWW_PATTERN, ' ', text)
+        # Clean up any extra whitespace
+        text = ' '.join(text.split())
+        return text
+
 
 class SarcasmDetector:
     def __init__(self):
-         # Initialize the sarcasm detector with strong markers, context-dependent 
+        # Initialize the sarcasm detector with strong markers, context-dependent 
         # markers, punctuation signals, and emoji signals that indicate sarcasm.
         
         # Strong sarcasm indicators (high confidence)
@@ -15,121 +103,55 @@ class SarcasmDetector:
             'shock horror',
             'surprise surprise',
             'oh great job',
-            'just what I needed',
+            'just what i needed',
             'big surprise'
         ]
         
-        # Context-dependent markers (need additional signals)
+        # Context-dependent markers
         self.contextual_markers = {
             'thanks a lot': {
                 'negative_signals': ['but', 'for nothing', 'now', "didn't", 'not'],
-                'punctuation': ['!!!', '...', '!?'],
-                'emoji': ['🙄', '😒', ':/']
+                'punctuation': TextSignals.PUNCTUATION,
+                'emoji': TextSignals.EMOJI
             },
             'thank you so much': {
                 'negative_signals': ['but', 'for nothing', "didn't", 'not'],
-                'punctuation': ['!!!', '...', '!?'],
-                'emoji': ['🙄', '😒', ':/']
+                'punctuation': TextSignals.PUNCTUATION,
+                'emoji': TextSignals.EMOJI
             },
             'obviously': {
                 'negative_signals': ['not', "didn't", 'never', 'but'],
-                'punctuation': ['...', '!?'],
-                'emoji': ['🙄', '😒']
+                'punctuation': TextSignals.PUNCTUATION,
+                'emoji': TextSignals.EMOJI
             }
         }
-        
-        # Punctuation that might indicate sarcasm when combined with other signals
-        self.punctuation_signals = ['!!!', '...', '!?', '??']
-        
-        # Emojis that might indicate sarcasm when combined with other signals
-        self.emoji_signals = ['🙄', '😒', '😏', ':/']
 
     def detect_sarcasm(self, text):
-        # Detect sarcasm in the given text by checking for strong markers 
-        # and contextual markers combined with additional signals.
-        text_lower = text.lower()
-        
-        # Check for strong markers (these alone indicate sarcasm)
-        for marker in self.strong_markers:
-            if marker in text_lower:
-                return True, marker
-        
-        # Check for contextual markers
-        for marker, signals in self.contextual_markers.items():
-            if marker in text_lower:
-                # Look for negative context signals
-                has_negative = any(signal in text_lower for signal in signals['negative_signals'])
-                has_punctuation = any(punct in text for punct in signals['punctuation'])
-                has_emoji = any(emoji in text for emoji in signals['emoji'])
-                
-                # Require at least two signals for contextual markers
-                if sum([has_negative, has_punctuation, has_emoji]) >= 2:
-                    return True, f"{marker} (contextual)"
-                
-        return False, None
+            # Expect already lowercased text
+            for marker in self.strong_markers:
+                if marker in text:
+                    return True, marker
+                    
+            for marker, signals in self.contextual_markers.items():
+                if marker in text:
+                    has_negative = any(signal in text for signal in signals['negative_signals'])
+                    has_punctuation = any(punct in text for punct in TextSignals.PUNCTUATION)
+                    has_emoji = any(emoji in text for emoji in TextSignals.EMOJI)
+                    
+                    if sum([has_negative, has_punctuation, has_emoji]) >= 2:
+                        return True, f"{marker} (contextual)"
+                        
+            return False, None
 
-    def process_text(self, text):
-        # Process the text to detect sarcasm and mark it if found.
-        is_sarcastic, marker = self.detect_sarcasm(text)
-        if is_sarcastic:
-            text += f" _SARC_{marker}"
-        return text, is_sarcastic
 
 class DataProcessor:
     def __init__(self):
-        # Initialize the data processor with contraction mappings, special token 
-        # mappings, negation words, and a sarcasm detector instance.
-        self.contraction_map = {
-            "can't": "cannot",
-            "won't": "will not",
-            "n't": " not",
-            "'re": " are",
-            "'s": " is",
-            "'d": " would",
-            "'ll": " will",
-            "'ve": " have",
-            "'m": " am",
-            "it's": "it is",
-            "let's": "let us",
-            "who's": "who is",
-            "what's": "what is",
-            "there's": "there is",
-            "we're": "we are",
-            "they're": "they are",
-            "you're": "you are",
-            "he's": "he is",
-            "she's": "she is",
-            "isn't": "is not",
-            "aren't": "are not",
-            "wasn't": "was not",
-            "weren't": "were not",
-            "hasn't": "has not",
-            "haven't": "have not",
-            "doesn't": "does not",
-            "don't": "do not",
-            "didn't": "did not",
-            "shouldn't": "should not",
-            "wouldn't": "would not",
-            "couldn't": "could not",
-            "mightn't": "might not",
-            "mustn't": "must not",
-        }
-        self.special_tokens = {
-            '!!!': ' MULTI_EXCLAIM ',
-            '...': ' ELLIPSIS ',
-            '??': ' MULTI_QUESTION ',
-            ':)': ' HAPPY_EMOJI ',
-            ':(': ' SAD_EMOJI ',
-            ':/': ' SKEPTICAL_EMOJI '
-        }
-        self.negation_words = ['not', 'never', "n't", 'no', 'neither', 'nor']
         self.sarcasm_detector = SarcasmDetector()
-
 
     def _calculate_polarity_score(self, text):
         # Calculate a polarity score (0 to 1) indicating the degree of mixed sentiment in the text,
         # considering contrasting sentiment markers, 'but' clauses, and negations.
-        processed_text = self.preprocess_text(text)
+        processed_text, _ = self.preprocess_text(text)
         
         # Check for contrasting sentiment markers
         positive_markers = ['good', 'great', 'excellent', 'amazing', 'wonderful']
@@ -161,15 +183,21 @@ class DataProcessor:
         return min(score, 1.0)  # Cap score at 1.0
     
     
-    def load_data(self, samples_per_class=2000):
-        # Load the Yelp Review dataset, balance the classes by sampling an equal 
-        # number of reviews per sentiment class, and shuffle the data.
+    
+    def load_data(self):
+        """Load the Yelp Review dataset and convert to DataFrame"""
         dataset = load_dataset("yelp_review_full")
         df = pd.DataFrame(dataset['train'])
+        
+        # adding sentiment column based on label
         df['sentiment'] = df['label'].apply(
             lambda x: 0 if x <= 1 else (1 if x == 2 else 2)
         )
-        
+        return df
+    
+    
+    def create_balanced_dataset(self, df, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
+        """Create a balanced dataset with equal samples per sentiment class"""
         df_balanced = pd.DataFrame()
         for sentiment in range(3):
             class_data = df[df['sentiment'] == sentiment].sample(
@@ -178,81 +206,122 @@ class DataProcessor:
             )
             df_balanced = pd.concat([df_balanced, class_data])
         
+        # Shuffle the final dataset
         return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+    
 
-    def split_data(self, df, test_size=0.1):
-        # Split the data into train and validation sets, stratifying by sentiment.
-        # Return the text and label dictionaries for each split.
-        train_df, val_df = train_test_split(
+
+    def split_data(self, df, val_size=0.2, test_size=0.1):
+        """
+        Split data into train, validation and test sets using a 7:2:1 ratio.
+        
+        Args:
+            df: Input DataFrame
+            val_size: Fraction of data for validation (default 0.2 for 20%)
+            test_size: Fraction of data for testing (default 0.1 for 10%)
+        
+        Returns:
+            Tuple of (train_texts, val_texts, test_texts, train_labels, val_labels, test_labels)
+        """
+        # First split off the test set (10%)
+        train_val_df, test_df = train_test_split(
             df,
             test_size=test_size,
             random_state=42,
             stratify=df['sentiment']
         )
-        train_texts = train_df['text']
-        val_texts = val_df['text']
-        # Create label dictionaries
-        train_labels = {
-            'sentiment': train_df['sentiment'],
-            'sarcasm': train_df['text'].apply(lambda x: '_SARC_' in x),
-            'negation': train_df['text'].apply(lambda x: '_NEG_' in x),
-            'polarity': train_df['text'].apply(self._calculate_polarity_score)
-        }
         
-        val_labels = {
-            'sentiment': val_df['sentiment'],
-            'sarcasm': val_df['text'].apply(lambda x: '_SARC_' in x),
-            'negation': val_df['text'].apply(lambda x: '_NEG_' in x),
-            'polarity': val_df['text'].apply(self._calculate_polarity_score)
-        }
-        return train_texts, val_texts, train_labels, val_labels
+        # Then split the remaining data into train and validation
+        # For remaining 90%, we want a 7:2 split (approximately 77.8% : 22.2% of remaining data)
+        effective_val_size = val_size / (1 - test_size)  # This will be 0.22222...
+        
+        train_df, val_df = train_test_split(
+            train_val_df,
+            test_size=effective_val_size,
+            random_state=42,
+            stratify=train_val_df['sentiment']
+        )
+        
+        # Print split sizes to verify distribution
+        print(f"Training set size: {len(train_df)} ({len(train_df)/len(df)*100:.1f}%)")
+        print(f"Validation set size: {len(val_df)} ({len(val_df)/len(df)*100:.1f}%)")
+        print(f"Test set size: {len(test_df)} ({len(test_df)/len(df)*100:.1f}%)")
+        
+        # Convert to numpy arrays
+        train_texts = train_df['text'].to_numpy()
+        val_texts = val_df['text'].to_numpy()
+        test_texts = test_df['text'].to_numpy()
+        
+        def create_label_dict(df):
+            return {
+                'sentiment': df['sentiment'].to_numpy(),
+                'sarcasm': df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
+                'negation': df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
+                'polarity': df['text'].apply(self._calculate_polarity_score).to_numpy()
+            }
+        
+        train_labels = create_label_dict(train_df)
+        val_labels = create_label_dict(val_df)
+        test_labels = create_label_dict(test_df)
+        
+        return train_texts, val_texts, test_texts, train_labels, val_labels, test_labels
+
+    
     
     def preprocess_text(self, text):
-        # Preprocess the text by expanding contractions, handling special tokens,
-        # marking negations, and detecting sarcasm using the enhanced detector.
-
+        # Clean URLs first
+        text = TextSignals.clean_urls(text)
+        
+        # Convert to lowercase
+        processed_text = text.lower() 
+        
         # Expand contractions
-        for contraction, expanded in self.contraction_map.items():
-            text = text.replace(contraction, expanded)
+        for contraction, expanded in TextSignals.CONTRACTION_MAP.items():
+            processed_text = processed_text.replace(contraction, expanded)
         
         # Handle special tokens
-        for token, replacement in self.special_tokens.items():
-            text = text.replace(token, replacement)
+        for token, replacement in TextSignals.SPECIAL_TOKENS.items():
+            processed_text = processed_text.replace(token, replacement)
         
         # Mark negations
-        for word in self.negation_words:
-            text = text.replace(f'{word} ', f'{word}_NEG ')
+        for word in TextSignals.NEGATION_WORDS:
+            processed_text = processed_text.replace(f'{word} ', f'{word}_NEG ')
         
-        # Detect sarcasm using the enhanced detector
-        processed_text, is_sarcastic = self.sarcasm_detector.process_text(text)
+        # Detect sarcasm
+        is_sarcastic, marker = self.sarcasm_detector.detect_sarcasm(processed_text)
+        if is_sarcastic:
+            processed_text += f" _SARC_{marker}"
         
-        return processed_text
+        return processed_text, is_sarcastic
+    
+    
 
     def process_batch(self, texts):
-        """Process a batch of texts with detailed analysis"""
-        # Process a batch of texts with detailed analysis, including sarcasm detection,
-        # negation marking, and special token handling. Return the processed texts
-        # and analysis counts.
         processed_texts = []
         analysis = {
             'sarcasm_count': 0,
             'negation_count': 0,
-            'special_tokens_count': 0
+            'special_tokens_count': 0,
+            'url_count': 0 
         }
         
         for text in texts:
-            # Process text and detect sarcasm
-            processed_text, is_sarcastic = self.sarcasm_detector.process_text(text)
+            # Count URLs before removing them
+            url_count = len(re.findall(TextSignals.URL_PATTERN, text))
+            url_count += len(re.findall(TextSignals.WWW_PATTERN, text))
+            analysis['url_count'] += url_count
             
-            # Apply other preprocessing
-            processed_text = self.preprocess_text(processed_text)
+            # Process with consistent lowercase handling
+            processed_text, is_sarcastic = self.preprocess_text(text)
             
-            # Update analysis
+            # All comparisons now use lowercase text
             if is_sarcastic:
                 analysis['sarcasm_count'] += 1
-            if any(neg in processed_text for neg in self.negation_words):
+
+            if any(neg in processed_text for neg in TextSignals.NEGATION_WORDS):
                 analysis['negation_count'] += 1
-            if any(token in text for token in self.special_tokens):
+    
+            if any(token in processed_text for token in TextSignals.SPECIAL_TOKENS):
                 analysis['special_tokens_count'] += 1
                 
             processed_texts.append(processed_text)
