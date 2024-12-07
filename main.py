@@ -40,30 +40,31 @@ class SentimentAnalyzer:
         # self.train_texts, self.val_texts, self.train_labels, self.val_labels = self.data_processor.split_data(df)
         # Return for convenience, but also store in instance
         return self.train_texts, self.val_texts,self.test_texts, self.train_labels, self.val_labels, self.test_labels
-
+    
 
     def initialize_model(self):
-        """Initialize and compile model with multi-task learning setup"""
-
-        # Check if data has been processed
-        if self.train_texts is None or self.train_labels is None:
+        """Initialize and compile model"""
+        if self.train_texts is None:
             raise ValueError("Please run process_data() before initializing the model")
         
-        # Load pre-trained tokenizer and model
         self.tokenizer = DistilBertTokenizer.from_pretrained(ModelConfig.BERT_MODEL)
         self.model = EnhancedDistilBertForSentiment()
         self.trainer = ModelTrainer(self.model, self.tokenizer)
 
-        # Prepare datasets
-        self.train_dataset = self.trainer.prepare_dataset(self.train_texts, self.train_labels)
-        self.val_dataset = self.trainer.prepare_dataset(self.val_texts, self.val_labels)
+        # Prepare simplified datasets (sentiment labels only)
+        self.train_dataset = self.trainer.prepare_dataset(
+            self.train_texts, 
+            {'sentiment': self.train_labels['sentiment']}
+        )
+        self.val_dataset = self.trainer.prepare_dataset(
+            self.val_texts,
+            {'sentiment': self.val_labels['sentiment']}
+        )
 
 
-
+        
     def predict(self, text):
-        """Generate comprehensive sentiment analysis for input text"""
-            
-        # Preprocess and tokenize
+        """Generate sentiment analysis for input text"""
         processed_text, _ = self.data_processor.preprocess_text(text)
         inputs = self.tokenizer(
             processed_text,
@@ -73,38 +74,18 @@ class SentimentAnalyzer:
             max_length=ModelConfig.MAX_LENGTH
         )
         
-        # Get model predictions
-        predictions = self.model(inputs)
-
-        # Process outputs
-        sentiment_probs = tf.nn.softmax(predictions['sentiment'], axis=-1).numpy()[0]
-        sarcasm_prob = tf.nn.sigmoid(predictions['sarcasm']).numpy()[0][0]
-        negation_prob = tf.nn.sigmoid(predictions['negation']).numpy()[0][0]
-        polarity_score = predictions['polarity'].numpy()[0][0]
-
-        # Detect multipolarity based on sentiment distribution
-        is_multipolar = (np.max(sentiment_probs) < 0.6) or (polarity_score > 0.5)
-    
+        # Get model predictions (now returns single sentiment tensor)
+        sentiment_logits = self.model(inputs)
+        sentiment_probs = tf.nn.softmax(sentiment_logits, axis=-1).numpy()[0]
+        
+        # Map probabilities to sentiment labels
+        sentiments = ['negative', 'neutral', 'positive']
         return {
-            'sentiment': {
-                'negative': float(sentiment_probs[0]),
-                'neutral': float(sentiment_probs[1]),
-                'positive': float(sentiment_probs[2])
-            },
-            'sarcasm': {
-                'probability': float(sarcasm_prob),
-                'detected': sarcasm_prob > 0.7  # Increase threshold from 0.5 to 0.7
-            },
-            'negation': {
-                'probability': float(negation_prob),
-                'detected': negation_prob > 0.7  # Increase threshold from 0.5 to 0.7
-            },
-            'multipolarity': {
-                'score': float(polarity_score),
-                'is_multipolar': polarity_score > 0.7  # Adjust threshold
-            }
+            'sentiment': {label: float(prob) for label, prob in zip(sentiments, sentiment_probs)},
+            'predicted': sentiments[np.argmax(sentiment_probs)]
         }
     
+
     def cleanup(self):
         """Clean up resources"""
         try:
@@ -126,14 +107,6 @@ class SentimentAnalyzer:
         return os.getcwd()
 
     def load_saved_model(self, epoch, model_dir=None):
-        """
-        Load a previously saved Enhanced DistilBERT model.
-        
-        Args:
-            epoch (int): The training epoch to load
-            model_dir (str): Directory containing saved model files. If None, 
-                           uses default 'saved_models' in project root.
-        """
         import os
         import json
         
@@ -172,14 +145,6 @@ class SentimentAnalyzer:
         return self.model, self.model_info['history']
     
     def save_enhanced_model(self, epoch, history, model_dir=None):
-        """
-        Save the Enhanced DistilBERT model with HuggingFace components
-        
-        Args:
-            epoch (int): Current training epoch
-            history: Training history object
-            model_dir (str): Directory to save model files. If None, uses default location
-        """
         if self.model is None:
             raise ValueError("Model must be initialized before saving")
             
@@ -197,19 +162,21 @@ class SentimentAnalyzer:
         distilbert_config_path = os.path.join(model_dir, f"distilbert_config_epoch{epoch}.json")
         distilbert_config.to_json_file(distilbert_config_path)
         
-        # 3. Save custom model architecture parameters
+
         model_params = {
             'lstm_units': ModelConfig.LSTM_UNITS,
-            'attention_dim': ModelConfig.ATTENTION_DIM,
+            'feature_dim': ModelConfig.FEATURE_DIM,
             'fusion_layers': ModelConfig.FUSION_LAYERS,
             'dropout_rates': ModelConfig.DROPOUT_RATES,
             'num_classes': ModelConfig.NUM_CLASSES
         }
         
-        # Convert history to regular Python types
-        converted_history = {}
-        for key, value in history.history.items():
-            converted_history[key] = [float(v) for v in value]
+        converted_history = {
+            'loss': [float(v) for v in history.history['loss']],
+            'val_loss': [float(v) for v in history.history['val_loss']],
+            'accuracy': [float(v) for v in history.history['accuracy']],
+            'val_accuracy': [float(v) for v in history.history['val_accuracy']]
+        }
         
         # 4. Save training history and configuration
         save_info = {
