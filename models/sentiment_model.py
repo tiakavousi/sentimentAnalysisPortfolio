@@ -11,76 +11,90 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
             tf.keras.layers.LSTM(ModelConfig.LSTM_UNITS, return_sequences=True)
         )
         
-        # Combine attention layers into a single block for clarity
-        self._init_attention_layers()
+        # Feature extraction layers
+        self._init_feature_layers()
         
-        # Initialize shared layers
-        self._init_shared_layers()
+        # Feature fusion layers
+        self._init_fusion_layers()
         
-        # Initialize task-specific layers
-        self._init_task_layers()
-  
-    def _init_attention_layers(self):
-        """Initialize attention mechanism layers"""
-        self.attention_query = tf.keras.layers.Dense(ModelConfig.ATTENTION_DIM)
-        self.attention_key = tf.keras.layers.Dense(ModelConfig.ATTENTION_DIM)
-        self.attention_value = tf.keras.layers.Dense(ModelConfig.ATTENTION_DIM)
+        # Final classifier
+        self.final_classifier = tf.keras.layers.Dense(ModelConfig.NUM_CLASSES, activation='softmax', name='sentiment')
 
-    def _init_shared_layers(self):
-        """Initialize shared processing layers"""
+    def _init_feature_layers(self):
+        """Initialize separate feature extraction layers"""
+        # Sarcasm detection branch
+        self.sarcasm_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
+        self.sarcasm_attention = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
+        )
+        
+        # Negation detection branch
+        self.negation_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
+        self.negation_attention = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
+        )
+        
+        # Polarity analysis branch
+        self.polarity_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
+        self.polarity_attention = tf.keras.layers.MultiHeadAttention(
+            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
+        )
+
+    def _init_fusion_layers(self):
+        """Initialize feature fusion layers"""
         self.fusion_dense1 = tf.keras.layers.Dense(ModelConfig.FUSION_LAYERS[0], activation='relu')
         self.fusion_dense2 = tf.keras.layers.Dense(ModelConfig.FUSION_LAYERS[1], activation='relu')
-        self.dropout1 = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[0])
-        self.dropout2 = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[1])
+        self.dropout = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[0])
 
-
-    def _init_task_layers(self):
-        """Initialize task-specific output layers"""
-        self.sentiment_classifier = tf.keras.layers.Dense(ModelConfig.NUM_CLASSES, activation='softmax', name='sentiment')
-        self.sarcasm_detector = tf.keras.layers.Dense(1, activation='sigmoid', name='sarcasm')
-        self.negation_detector = tf.keras.layers.Dense(1, activation='sigmoid', name='negation')
-        self.polarity_scorer = tf.keras.layers.Dense(1, name='polarity')
-
-
-    def attention(self, query, key, value, training=False):
-        """Compute attention scores and weighted sum"""
-        attention_weights = tf.matmul(query, key, transpose_b=True)
-        attention_weights = tf.nn.softmax(attention_weights, axis=-1)
-        return tf.matmul(attention_weights, value)
-    
-    
     def call(self, inputs, training=False):
-        # Get BERT embeddings
+        # BERT embeddings
         sequence_output = self.distilbert(
             inputs['input_ids'],
             attention_mask=inputs['attention_mask'],
             training=training
         )[0]
         
-        # Process sequence with LSTM
+        # LSTM processing
         lstm_output = self.lstm(sequence_output)
-        lstm_output = self.dropout1(lstm_output, training=training)
         
-        # Compute attention
-        query = self.attention_query(lstm_output)
-        key = self.attention_key(lstm_output)
-        value = self.attention_value(lstm_output)
-        attention_output = self.attention(query, key, value, training)
+        # Feature extraction with attention
+        sarcasm_features = self.sarcasm_dense(lstm_output)
+        sarcasm_attended = self.sarcasm_attention(
+            sarcasm_features, sarcasm_features, sarcasm_features
+        )
         
-        # Global pooling and shared features
-        pooled = tf.reduce_mean(attention_output, axis=1)
-        fused = self.fusion_dense1(pooled)
+        negation_features = self.negation_dense(lstm_output)
+        negation_attended = self.negation_attention(
+            negation_features, negation_features, negation_features
+        )
+        
+        polarity_features = self.polarity_dense(lstm_output)
+        polarity_attended = self.polarity_attention(
+            polarity_features, polarity_features, polarity_features
+        )
+        
+        # Pool features
+        sarcasm_pooled = tf.reduce_mean(sarcasm_attended, axis=1)
+        negation_pooled = tf.reduce_mean(negation_attended, axis=1)
+        polarity_pooled = tf.reduce_mean(polarity_attended, axis=1)
+        
+        # Concatenate features
+        combined = tf.concat([
+            sarcasm_pooled, 
+            negation_pooled, 
+            polarity_pooled
+        ], axis=-1)
+        
+        # Feature fusion
+        fused = self.fusion_dense1(combined)
+        fused = self.dropout(fused, training=training)
         fused = self.fusion_dense2(fused)
-        shared_features = self.dropout2(fused, training=training)
-
-        # Task-specific outputs
-        return {
-            'sentiment': self.sentiment_classifier(shared_features),
-            'sarcasm': self.sarcasm_detector(shared_features),
-            'negation': self.negation_detector(shared_features),
-            'polarity': self.polarity_scorer(shared_features)
-        }
-
+        
+        # Final sentiment prediction
+        sentiment = self.final_classifier(fused)
+        
+        return sentiment
+    
 
 class ModelTrainer:
 
@@ -90,17 +104,14 @@ class ModelTrainer:
         if model is not None:
             self._compile_model()
 
+
     def _compile_model(self):
-        """Compile model with optimizer and loss functions"""
-        if self.model is None:
-            raise ValueError("Cannot compile None model")
         self.model.compile(
             optimizer=tf.keras.optimizers.Adam(
                 learning_rate=self._create_learning_rate_schedule()
             ),
-            loss=ModelConfig.LOSSES,
-            metrics=ModelConfig.METRICS,
-            loss_weights=ModelConfig.LOSS_WEIGHTS
+            loss='sparse_categorical_crossentropy',
+            metrics=['accuracy']
         )
 
     def _create_learning_rate_schedule(self):
@@ -111,11 +122,8 @@ class ModelTrainer:
             decay_rate=ModelConfig.DECAY_RATE
         )
     
-
+    
     def prepare_dataset(self, texts, labels=None):
-        """Prepare dataset with efficient preprocessing"""
-
-        # Tokenize texts
         encoded = self.tokenizer(
             texts.tolist(),
             padding='max_length',
@@ -124,30 +132,20 @@ class ModelTrainer:
             return_tensors='tf'
         )
         
-        # Prepare features
         features = {
             'input_ids': tf.convert_to_tensor(encoded['input_ids'], dtype=tf.int32),
             'attention_mask': tf.convert_to_tensor(encoded['attention_mask'], dtype=tf.int32)
         }
-
+        
         if labels is None:
             return features
-        # Prepare labels with proper shapes
-        labels_dict = {
-            'sentiment': tf.convert_to_tensor(labels['sentiment'], dtype=tf.int32),
-            'sarcasm': tf.reshape(tf.cast(labels['sarcasm'], tf.float32), (-1, 1)),
-            'negation': tf.reshape(tf.cast(labels['negation'], tf.float32), (-1, 1)),
-            'polarity': tf.reshape(tf.cast(labels['polarity'], tf.float32), (-1, 1))
-        }
-        
-        # Create and optimize dataset
-        return (tf.data.Dataset.from_tensor_slices((features, labels_dict))
-                .cache()
-                .shuffle(ModelConfig.SHUFFLE_BUFFER_SIZE)
-                .batch(ModelConfig.BATCH_SIZE)
-                .prefetch(tf.data.AUTOTUNE))
-    
-    
+            
+        return tf.data.Dataset.from_tensor_slices((
+            features, 
+            labels['sentiment']
+        )).batch(ModelConfig.BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+
+
     def train(self, train_dataset, val_dataset):
         """Train the model"""
         # Create strategy for better error handling
