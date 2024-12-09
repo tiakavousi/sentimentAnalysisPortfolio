@@ -186,7 +186,8 @@ class DataProcessor:
     
     def load_data(self):
         """Load the Yelp Review dataset and convert to DataFrame"""
-        dataset = load_dataset("yelp_review_full")
+        dataset = load_dataset(ModelConfig.YELP_DATASET)
+
         df = pd.DataFrame(dataset['train'])
         
         # adding sentiment column based on label
