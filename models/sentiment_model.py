@@ -107,13 +107,16 @@ class ModelTrainer:
 
     def _compile_model(self):
         self.model.compile(
-            optimizer=tf.keras.optimizers.Adam(
-                learning_rate=self._create_learning_rate_schedule()
+            optimizer=tf.keras.optimizers.AdamW(
+                learning_rate=self._create_learning_rate_schedule(),
+                weight_decay=0.01,
+                clipnorm=1.0
             ),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy']
         )
 
+    
     def _create_learning_rate_schedule(self):
         """Create learning rate schedule"""
         return tf.keras.optimizers.schedules.ExponentialDecay(
@@ -154,30 +157,27 @@ class ModelTrainer:
         with strategy.scope():
             history = self.model.fit(
                 train_dataset,
-                validation_data=val_dataset,
-                epochs=ModelConfig.EPOCHS,
-                callbacks=self.get_callbacks()
+                validation_data = val_dataset,
+                epochs = ModelConfig.EPOCHS,
+                callbacks = self.get_callbacks()
             )
             
         return history
     
+
+    # factor=0.5, # patience=1,# min_lr=1e-6
     def get_callbacks(self):
         return [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss',
                 patience=ModelConfig.EARLY_STOPPING_PATIENCE,
-                restore_best_weights=True
+                restore_best_weights=True,
+                min_delta=ModelConfig.EARLY_STOPPING_MIN_DELTA
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_loss',
-                factor=0.5,
-                patience=1,
-                min_lr=1e-6
-            ),
-            tf.keras.callbacks.ModelCheckpoint(
-                'best_model.h5',
-                monitor='val_loss',
-                save_best_only=True,
-                mode='min'
+                factor=0.2,  # More aggressive reduction (from 0.5)
+                patience=2,  # Increase from 1
+                min_lr=1e-7  # Lower minimum learning rate
             )
         ]

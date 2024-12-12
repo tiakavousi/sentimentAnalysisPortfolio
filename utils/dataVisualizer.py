@@ -6,7 +6,7 @@ import seaborn as sns
 from collections import Counter
 from wordcloud import WordCloud
 import re
-from data.data_processing import DataProcessor
+from data.data_processing import DataProcessor, TextSignals
 
 class DataVisualizer:
     def __init__(self):
@@ -175,6 +175,8 @@ class DataVisualizer:
             for word, freq in word_freq:
                 print(f"  {word}: {freq}")
 
+
+
     @staticmethod
     def analyze_text_signals(df):
         """
@@ -188,12 +190,14 @@ class DataVisualizer:
         import pandas as pd
         results = []
         processor = DataProcessor()
+        from data.data_processing import TextSignals  # Add explicit import
         
         print("Processing texts... This may take a while...\n")
         
         for text in df['text']:
             processed_text, is_sarcastic = processor.preprocess_text(text)
-            has_negation = any(neg in processed_text for neg in processor.sarcasm_detector.strong_markers)
+            # Fix: Use TextSignals.NEGATION_WORDS for negation detection
+            has_negation = any(neg in processed_text.lower() for neg in TextSignals.NEGATION_WORDS)
             results.append({
                 'sarcastic': is_sarcastic,
                 'has_negation': has_negation

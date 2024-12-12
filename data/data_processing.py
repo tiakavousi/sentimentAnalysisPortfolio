@@ -195,16 +195,51 @@ class DataProcessor:
             lambda x: 0 if x <= 1 else (1 if x == 2 else 2)
         )
         return df
-    
-    
+
+
+    #dataset need to be balanced due to small number of data with sarcasm, 
+    # this method will make use of all the sarcastic reviews and stratify based on sentiment
     def create_balanced_dataset(self, df, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
-        """Create a balanced dataset with equal samples per sentiment class"""
+        """
+        Create a balanced dataset preserving sarcasm examples and maintaining sentiment balance.
+        """
         df_balanced = pd.DataFrame()
+        
         for sentiment in range(3):
-            class_data = df[df['sentiment'] == sentiment].sample(
-                n=samples_per_class, 
+            # Get all samples for this sentiment
+            sentiment_data = df[df['sentiment'] == sentiment]
+            
+            # First, get all sarcastic samples for this sentiment class
+            sarcastic_samples = sentiment_data[
+                sentiment_data['text'].apply(lambda x: 
+                    '_SARC_' in self.preprocess_text(x)[0]
+                )
+            ]
+            
+            # Calculate remaining samples needed
+            remaining_samples = samples_per_class - len(sarcastic_samples)
+            
+            # Get non-sarcastic samples
+            non_sarcastic_samples = sentiment_data[
+                ~sentiment_data.index.isin(sarcastic_samples.index)
+            ].sample(
+                n=min(remaining_samples, len(sentiment_data)),
                 random_state=42
             )
+            
+            # Combine sarcastic and non-sarcastic samples
+            class_data = pd.concat([sarcastic_samples, non_sarcastic_samples])
+            
+            # If we still don't have enough samples, duplicate some
+            if len(class_data) < samples_per_class:
+                samples_needed = samples_per_class - len(class_data)
+                additional_samples = non_sarcastic_samples.sample(
+                    n=samples_needed,
+                    replace=True,
+                    random_state=42
+                )
+                class_data = pd.concat([class_data, additional_samples])
+            
             df_balanced = pd.concat([df_balanced, class_data])
         
         # Shuffle the final dataset
@@ -253,12 +288,20 @@ class DataProcessor:
         val_texts = val_df['text'].to_numpy()
         test_texts = test_df['text'].to_numpy()
         
+        # def create_label_dict(df):
+        #     return {
+        #         'sentiment': df['sentiment'].to_numpy(),
+        #         'sarcasm': df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
+        #         'negation': df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
+        #         'polarity': df['text'].apply(self._calculate_polarity_score).to_numpy()
+        #     }
         def create_label_dict(df):
+            processed_texts = df['text'].apply(lambda x: self.preprocess_text(x)[0])
             return {
                 'sentiment': df['sentiment'].to_numpy(),
-                'sarcasm': df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
-                'negation': df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
-                'polarity': df['text'].apply(self._calculate_polarity_score).to_numpy()
+                'sarcasm': processed_texts.apply(lambda x: '_SARC_' in x).to_numpy(),
+                'negation': processed_texts.apply(lambda x: '_NEG_' in x).to_numpy(),
+                'polarity': processed_texts.apply(self._calculate_polarity_score).to_numpy()
             }
         
         train_labels = create_label_dict(train_df)
