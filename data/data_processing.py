@@ -1,14 +1,274 @@
+# ✅ Load and preprocess full dataset
+# ✅ Detect natural sarcasm before splitting
+# ✅ Split data
+# ✅ Balance classes while preserving natural sarcasm
+# ✅ Add synthetic sarcasm only to training set
+# ✅ Prepare model inputs
+
 from datasets import load_dataset
 import pandas as pd
+import numpy as np
 import re
 from sklearn.model_selection import train_test_split
-from config.model_config import ModelConfig
+from config.model_config import Config
+import random
+from typing import Optional, Tuple, Dict
+
+
+class SarcasmAugmenter:
+    def __init__(self):
+        self.sarcasm_patterns = {
+            'positive_to_negative': [
+                # Disbelief patterns
+                "Oh wow, {text} ... just brilliant",
+                "Sure, {text} ... because that makes total sense",
+                "Yeah right, {text}",
+                "How wonderful, {text}",
+                "Just what everyone needed, {text}",
+                "Because obviously {text}",
+                
+                # Exaggerated praise
+                "I'm truly amazed that {text}",
+                "This is pure genius: {text}",
+                "Simply masterful how {text}",
+                "What a breakthrough: {text}",
+                "Revolutionary idea: {text}",
+                
+                # Mock enthusiasm
+                "I'm jumping for joy that {text}",
+                "My life is complete now that {text}",
+                "Finally, my prayers are answered: {text}",
+                "This changes everything: {text}",
+                
+                # Feigned gratitude
+                "Thanks for showing us that {text}",
+                "So grateful to learn that {text}",
+                "What a blessing that {text}",
+                
+                # Ironic observations
+                "Clearly the best part is how {text}",
+                "Nothing could possibly go wrong when {text}",
+                "Absolutely foolproof: {text}",
+                "Can't possibly fail: {text}",
+                
+                # Mock agreement
+                "Oh totally, because {text}",
+                "Makes perfect sense that {text}",
+                "I completely understand why {text}",
+                
+                # Exaggerated impact
+                "This will definitely solve everything: {text}",
+                "World-changing revelation: {text}",
+                "History in the making: {text}"
+            ],
+            'negative_to_positive': [
+                # False enthusiasm
+                "This is totally the best when {text}",
+                "I'm thrilled that {text}",
+                "Nothing better than when {text}",
+                "So happy that {text}",
+                "Living the dream when {text}",
+                
+                # Mock optimism
+                "Looking forward to more of {text}",
+                "Can't wait for next time {text}",
+                "Already excited about {text}",
+                "The joy of experiencing {text}",
+                
+                # Fake contentment
+                "Just what I always wanted: {text}",
+                "Exactly how I hoped {text}",
+                "Perfect, simply perfect how {text}",
+                
+                # False appreciation
+                "Really appreciate how {text}",
+                "So blessed to experience {text}",
+                "Lucky us, getting to see {text}",
+                
+                # Mock satisfaction
+                "Absolutely satisfying when {text}",
+                "Couldn't ask for more than {text}",
+                "Just what the doctor ordered: {text}",
+                
+                # Feigned excitement
+                "The highlight of my day: {text}",
+                "Simply cannot contain my joy that {text}",
+                "Exactly what we needed: {text}",
+                
+                # Mock relief
+                "Such a relief that {text}",
+                "Thank goodness for {text}",
+                "Finally, salvation: {text}"
+            ]
+        }
+        
+        self.intensifiers = [
+            # Standard intensifiers
+            "absolutely", "totally", "completely", "utterly",
+            "definitely", "certainly", "surely", "obviously",
+            
+            # Added intensifiers
+            "undoubtedly", "positively", "unquestionably", "indisputably",
+            "without a doubt", "beyond question", "clearly", "plainly",
+            "unmistakably", "undeniably", "genuinely", "truly",
+            "perfectly", "entirely", "thoroughly", "hundred percent"
+        ]
+        
+        self.sarcastic_endings = [
+            # Direct contradiction
+            "... NOT!", "... right.", "... sure.", 
+            "... whatever.", "... if you say so.",
+            "... like that's gonna work.",
+            
+            # Added endings
+            "... as if!", "... yeah right.",
+            "... in your dreams.", "... good luck with that.",
+            "... I'm sure that'll work out great.",
+            "... what could possibly go wrong?",
+            "... because that makes sense.",
+            "... genius plan right there.",
+            "... totally believable.",
+            "... seems legit.",
+            "... that'll end well.",
+            "... brilliant strategy.",
+            "... way to go.",
+            "... nailed it."
+        ]
+        
+        self.emojis = [
+            " _EYE_ROLL_EMOJI ", " _UNAMUSED_EMOJI ",
+            " _SMIRK_EMOJI ", " _UPSIDE_DOWN_EMOJI ",
+            " _THINKING_EMOJI ", " _EXPRESSIONLESS_EMOJI ",
+            " _SIDE_EYE_EMOJI ", " _RAISED_EYEBROW_EMOJI ",
+            " _STRAIGHT_FACE_EMOJI ", " _SMIRKING_EMOJI "
+        ]
+
+    def _create_sarcastic_variant(self, text: str, sentiment: int) -> Tuple[str, bool]:
+        """Create a sarcastic variant of the input text based on sentiment."""
+        text = text.lower().strip()
+        
+        if sentiment == 0:  # negative
+            pattern_key = 'negative_to_positive'
+        elif sentiment == 2:  # positive
+            pattern_key = 'positive_to_negative'
+        else:  # neutral - randomly choose direction
+            pattern_key = random.choice(['positive_to_negative', 'negative_to_positive'])
+            
+        try:
+            pattern = random.choice(self.sarcasm_patterns[pattern_key])
+            
+            if random.random() < 0.5:
+                text = f"{random.choice(self.intensifiers)} {text}"
+            
+            augmented = pattern.format(text=text)
+            
+            if random.random() < 0.3:
+                augmented += random.choice(self.sarcastic_endings)
+            
+            if random.random() < 0.4:
+                augmented += random.choice(self.emojis)
+                
+            return augmented, True
+            
+        except Exception as e:
+            print(f"Failed to create sarcastic variant: {str(e)}")
+            return text, False
+
+
+
+    def create_balanced_sarcastic_dataset(self, df: pd.DataFrame, sarcasm_ratio: float = 0.4) -> pd.DataFrame:
+        balanced_data = []
+        samples_per_class = Config.SAMPLES_PER_CLASS
+        target_sarcastic = int(samples_per_class * sarcasm_ratio)
+        
+        print(f"Creating balanced dataset with:")
+        print(f"- {samples_per_class} reviews per class")
+        print(f"- {target_sarcastic} sarcastic reviews per class")
+        
+        for sentiment in [0, 1, 2]:
+            class_data = df[df['sentiment'] == sentiment]
+            class_samples = []
+            
+            # First, preserve naturally sarcastic samples
+            natural_sarcastic = class_data[class_data['is_sarcastic'] == True]
+            for _, row in natural_sarcastic.iterrows():
+                class_samples.append({
+                    'text': row['text'],
+                    'processed_text': row['processed_text'],
+                    'sentiment': row['sentiment'],
+                    'is_sarcastic': True,
+                    'sarcasm_source': 'natural'
+                })
+            
+            # Add synthetic sarcasm to reach target
+            remaining_sarcastic_needed = target_sarcastic - len(natural_sarcastic)
+            if remaining_sarcastic_needed > 0:
+                reviews_to_augment = class_data[
+                    ~class_data.index.isin(natural_sarcastic.index) & 
+                    (class_data['is_sarcastic'] == False)
+                ].sample(
+                    n=min(len(class_data), remaining_sarcastic_needed),
+                    random_state=Config.RANDOM_SEED
+                )
+                
+                for _, row in reviews_to_augment.iterrows():
+                    augmented, success = self._create_sarcastic_variant(
+                        row['processed_text'],
+                        row['sentiment']
+                    )
+                    if success:
+                        class_samples.append({
+                            'text': row['text'],
+                            'processed_text': augmented,
+                            'sentiment': row['sentiment'],
+                            'is_sarcastic': True,
+                            'sarcasm_source': 'augmentation'
+                        })
+            
+            # Fill remaining with non-sarcastic samples
+            remaining_needed = samples_per_class - len(class_samples)
+            if remaining_needed > 0:
+                non_sarcastic_samples = class_data[
+                    ~class_data.index.isin(natural_sarcastic.index) &
+                    (class_data['is_sarcastic'] == False)
+                ].sample(
+                    n=min(remaining_needed, len(class_data)),
+                    random_state=Config.RANDOM_SEED,
+                    replace=True
+                )
+                
+                for _, row in non_sarcastic_samples.iterrows():
+                    class_samples.append({
+                        'text': row['text'],
+                        'processed_text': row['processed_text'],
+                        'sentiment': row['sentiment'],
+                        'is_sarcastic': False,
+                        'sarcasm_source': 'none'
+                    })
+            
+            balanced_data.extend(class_samples)
+        
+        balanced_df = pd.DataFrame(balanced_data)
+        
+        # Print distribution statistics
+        print("\nFinal distribution:")
+        for sentiment in [0, 1, 2]:
+            sentiment_data = balanced_df[balanced_df['sentiment'] == sentiment]
+            natural = sentiment_data[sentiment_data['sarcasm_source'] == 'natural']
+            augmented = sentiment_data[sentiment_data['sarcasm_source'] == 'augmentation']
+            print(f"\nSentiment {sentiment}:")
+            print(f"- Total samples: {len(sentiment_data)}")
+            print(f"- Natural sarcasm: {len(natural)}")
+            print(f"- Augmented sarcasm: {len(augmented)}")
+            print(f"- Total sarcastic: {len(natural) + len(augmented)} ({(len(natural) + len(augmented))/len(sentiment_data)*100:.1f}%)")
+        
+        return balanced_df.sample(frac=1, random_state=Config.RANDOM_SEED).reset_index(drop=True)
 
 
 class TextSignals:
     PUNCTUATION = ['!!!', '...', '!?', '??']
     EMOJI = ['🙄', '😒', '😏', ':/']
-    NEGATION_WORDS = ['not', 'never', "n't", 'no', 'neither', 'nor']
+    # NEGATION_WORDS = ['not', 'never', "n't", 'no', 'neither', 'nor']
     
     # URL regex pattern
     URL_PATTERN = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
@@ -92,10 +352,6 @@ class TextSignals:
 
 class SarcasmDetector:
     def __init__(self):
-        # Initialize the sarcasm detector with strong markers, context-dependent 
-        # markers, punctuation signals, and emoji signals that indicate sarcasm.
-        
-        # Strong sarcasm indicators (high confidence)
         self.strong_markers = [
             'yeah right',
             'suuure',
@@ -126,7 +382,7 @@ class SarcasmDetector:
             }
         }
 
-    def detect_sarcasm(self, text):
+    def detect_sarcasm(self, text)-> Tuple[bool, Optional[str]]:
             # Expect already lowercased text
             for marker in self.strong_markers:
                 if marker in text:
@@ -144,137 +400,157 @@ class SarcasmDetector:
             return False, None
 
 
+
 class DataProcessor:
     def __init__(self):
         self.sarcasm_detector = SarcasmDetector()
+        self.augmenter = SarcasmAugmenter()
 
-    def _calculate_polarity_score(self, text):
-        # Calculate a polarity score (0 to 1) indicating the degree of mixed sentiment in the text,
-        # considering contrasting sentiment markers, 'but' clauses, and negations.
-        processed_text, _ = self.preprocess_text(text)
-        
-        # Check for contrasting sentiment markers
-        positive_markers = ['good', 'great', 'excellent', 'amazing', 'wonderful']
-        negative_markers = ['bad', 'terrible', 'horrible', 'awful', 'poor']
-        
-        # Count positive and negative markers
-        pos_count = sum(marker in processed_text.lower() for marker in positive_markers)
-        neg_count = sum(marker in processed_text.lower() for marker in negative_markers)
-        
-        # Check for 'but' clauses which often indicate mixed sentiment
-        has_but = 'but' in processed_text.lower()
-        
-        # Check for negation which might flip sentiment
-        has_negation = '_NEG_' in processed_text
-        
-        # Calculate score (0 to 1, higher means more mixed/polar)
-        if has_but:
-            score = 0.7  # Base score for contrasting statements
-        else:
-            score = 0.3  # Base score for regular statements
-        
-        # Adjust score based on sentiment markers
-        if pos_count > 0 and neg_count > 0:
-            score += 0.3  # Increase score for mixed sentiment
-        
-        if has_negation:
-            score += 0.2  # Increase score for negation
-            
-        return min(score, 1.0)  # Cap score at 1.0
-    
-    
-    
-    def load_data(self):
-        """Load the Yelp Review dataset and convert to DataFrame"""
-        dataset = load_dataset(ModelConfig.YELP_DATASET)
-
+    #1 load_data() - Loads Yelp dataset
+    def load_data(self) -> pd.DataFrame:
+        # Load dataset
+        dataset = load_dataset(Config.YELP_DATASET)
         df = pd.DataFrame(dataset['train'])
+        print("\nRaw Dataset\n")
+        print(df.head())
         
-        # adding sentiment column based on label
-        df['sentiment'] = df['label'].apply(
-            lambda x: 0 if x <= 1 else (1 if x == 2 else 2)
+        # Preprocess all texts first
+        df['processed_text'] = df['text'].apply(self.preprocess_text)
+        
+        # Detect natural sarcasm
+        df['is_sarcastic'] = df['processed_text'].apply(
+            lambda x: self.sarcasm_detector.detect_sarcasm(x)[0]
         )
+        
+        # Add sentiment labels
+        df['sentiment'] = df['label'].apply(lambda x: 0 if x < 2 else (1 if x == 2 else 2))
+        print("\nSentiment added\n")
+        print(df.head())
+        
         return df
     
-    
-    def create_balanced_dataset(self, df, samples_per_class=ModelConfig.SAMPLES_PER_CLASS):
-        """Create a balanced dataset with equal samples per sentiment class"""
-        df_balanced = pd.DataFrame()
-        for sentiment in range(3):
-            class_data = df[df['sentiment'] == sentiment].sample(
-                n=samples_per_class, 
-                random_state=42
-            )
-            df_balanced = pd.concat([df_balanced, class_data])
-        
-        # Shuffle the final dataset
-        return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
-    
+    #2 split_data() - Splits into train/val/test
+    def split_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
-
-    def split_data(self, df, val_size=0.2, test_size=0.1):
-        """
-        Split data into train, validation and test sets using a 7:2:1 ratio.
-        
-        Args:
-            df: Input DataFrame
-            val_size: Fraction of data for validation (default 0.2 for 20%)
-            test_size: Fraction of data for testing (default 0.1 for 10%)
-        
-        Returns:
-            Tuple of (train_texts, val_texts, test_texts, train_labels, val_labels, test_labels)
-        """
-        # First split off the test set (10%)
         train_val_df, test_df = train_test_split(
             df,
-            test_size=test_size,
-            random_state=42,
-            stratify=df['sentiment']
+            test_size = Config.TEST_SPLIT,
+            random_state = Config.RANDOM_SEED,
+            stratify = df['sentiment']
         )
         
-        # Then split the remaining data into train and validation
-        # For remaining 90%, we want a 7:2 split (approximately 77.8% : 22.2% of remaining data)
-        effective_val_size = val_size / (1 - test_size)  # This will be 0.22222...
-        
+        val_size = Config.VALIDATION_SPLIT / (1 - Config.TEST_SPLIT)
+
         train_df, val_df = train_test_split(
             train_val_df,
-            test_size=effective_val_size,
-            random_state=42,
-            stratify=train_val_df['sentiment']
+            test_size = val_size,
+            random_state = Config.RANDOM_SEED,
+            stratify = train_val_df['sentiment']
         )
         
-        # Print split sizes to verify distribution
-        print(f"Training set size: {len(train_df)} ({len(train_df)/len(df)*100:.1f}%)")
-        print(f"Validation set size: {len(val_df)} ({len(val_df)/len(df)*100:.1f}%)")
-        print(f"Test set size: {len(test_df)} ({len(test_df)/len(df)*100:.1f}%)")
+        return train_df, val_df, test_df
+    
+    #3 _balance_classes() - Balances class distribution
+    def _balance_classes(self, df: pd.DataFrame, samples_per_class: int = Config.SAMPLES_PER_CLASS) -> pd.DataFrame:
+        df_balanced = pd.DataFrame()
         
-        # Convert to numpy arrays
-        train_texts = train_df['text'].to_numpy()
-        val_texts = val_df['text'].to_numpy()
-        test_texts = test_df['text'].to_numpy()
+        for sentiment in range(3):
+            sentiment_data = df[df['sentiment'] == sentiment]
+            natural_sarcastic = sentiment_data[sentiment_data['is_sarcastic'] == True]
+            non_sarcastic = sentiment_data[sentiment_data['is_sarcastic'] == False]
+            
+            remaining_needed = samples_per_class - len(natural_sarcastic)
+            if remaining_needed > 0:
+                sampled_non_sarcastic = non_sarcastic.sample(
+                    n = min(len(non_sarcastic), remaining_needed),
+                    replace = len(non_sarcastic) < remaining_needed,
+                    random_state = Config.RANDOM_SEED
+                )
+                sampled_data = pd.concat([natural_sarcastic, sampled_non_sarcastic])
+            else:
+                sampled_data = natural_sarcastic.sample(n=samples_per_class, random_state=Config.RANDOM_SEED)
+                
+            df_balanced = pd.concat([df_balanced, sampled_data])
         
-        def create_label_dict(df):
-            return {
-                'sentiment': df['sentiment'].to_numpy(),
-                'sarcasm': df['text'].apply(lambda x: '_SARC_' in x).to_numpy(),
-                'negation': df['text'].apply(lambda x: '_NEG_' in x).to_numpy(),
-                'polarity': df['text'].apply(self._calculate_polarity_score).to_numpy()
+        return df_balanced.sample(frac=1, random_state=Config.RANDOM_SEED).reset_index(drop=True)
+    
+    
+    #4 _process_split() - Processes each split
+    def _process_split(self, df: pd.DataFrame, apply_augmentation: bool) -> pd.DataFrame:
+        # Apply augmentation only to train set
+        if apply_augmentation and Config.SARCASM_RATIO > 0:
+            df = self.augmenter.create_balanced_sarcastic_dataset(df)
+        
+        # Generate final labels
+        processed_data = []
+        for _, row in df.iterrows():
+            processed_row = {
+                'text': row['text'],
+                'processed_text': row['processed_text'],
+                'sentiment': row['sentiment'],
+                'is_sarcastic': row['is_sarcastic'],
+                'polarity_score': self._calculate_polarity_score(row['processed_text'])
             }
+            processed_data.append(processed_row)
         
-        train_labels = create_label_dict(train_df)
-        val_labels = create_label_dict(val_df)
-        test_labels = create_label_dict(test_df)
-        
-        return train_texts, val_texts, test_texts, train_labels, val_labels, test_labels
+        return pd.DataFrame(processed_data)
+    
 
+    #5 prepare_data() - Main orchestrator
+    def prepare_data(self)->Tuple[np.ndarray, Dict, np.ndarray, Dict, np.ndarray, Dict]:
+        """Prepare dataset with proper train/val/test split and augmentation"""
+        print(f"Creating dataset with {Config.SAMPLES_PER_CLASS} samples per class")
     
-    
-    def preprocess_text(self, text):
-        # Clean URLs first
-        text = TextSignals.clean_urls(text)
+        # 1. Load raw data
+        raw_df = self.load_data()
+        # 2. Balance classes first
+        balanced_df = self._balance_classes(raw_df)
         
-        # Convert to lowercase
-        processed_text = text.lower() 
+        # 3. Split first (before any balancing or augmentation)
+        train_df, val_df, test_df = self.split_data(balanced_df)
+        
+        # 4. Process each split with appropriate augmentation
+        train_processed = self._process_split(train_df, apply_augmentation=True)
+        val_processed = self._process_split(val_df, apply_augmentation=False)
+        test_processed = self._process_split(test_df, apply_augmentation=False)
+        
+        # 5. Prepare model inputs
+        model_inputs = self._prepare_model_inputs(train_processed, val_processed, test_processed)
+    
+        return {
+            'dataframes': {
+                'train': train_processed,
+                'val': val_processed,
+                'test': test_processed
+            },
+            'model_inputs': model_inputs
+        }
+        
+
+    #6 _prepare_model_inputs() - Converts to model format
+    def _prepare_model_inputs(self, train_df, val_df, test_df)-> Tuple[np.ndarray, Dict, np.ndarray, Dict, np.ndarray, Dict]:
+        """Convert processed dataframes into model inputs"""
+        def prepare_split(df):
+            return (
+                df['processed_text'].to_numpy(),
+                {
+                    'sentiment': df['sentiment'].to_numpy(),
+                    'sarcasm': df['is_sarcastic'].to_numpy(),
+                    'polarity': df['polarity_score'].to_numpy()
+                }
+            )
+        
+        return (*prepare_split(train_df), 
+                *prepare_split(val_df), 
+                *prepare_split(test_df))
+    
+
+    #7 preprocess_text() - Text preprocessing utility
+    def preprocess_text(self, text: str) -> str:
+        """Single source of truth for text preprocessing"""
+        # Clean URLs
+        text = TextSignals.clean_urls(text)
+        processed_text = text.lower()
         
         # Expand contractions
         for contraction, expanded in TextSignals.CONTRACTION_MAP.items():
@@ -284,47 +560,20 @@ class DataProcessor:
         for token, replacement in TextSignals.SPECIAL_TOKENS.items():
             processed_text = processed_text.replace(token, replacement)
         
-        # Mark negations
-        for word in TextSignals.NEGATION_WORDS:
-            processed_text = processed_text.replace(f'{word} ', f'{word}_NEG ')
-        
-        # Detect sarcasm
-        is_sarcastic, marker = self.sarcasm_detector.detect_sarcasm(processed_text)
-        if is_sarcastic:
-            processed_text += f" _SARC_{marker}"
-        
-        return processed_text, is_sarcastic
+        return processed_text
     
-    
-
-    def process_batch(self, texts):
-        processed_texts = []
-        analysis = {
-            'sarcasm_count': 0,
-            'negation_count': 0,
-            'special_tokens_count': 0,
-            'url_count': 0 
-        }
+    #8 _calculate_polarity_score
+    def _calculate_polarity_score(self, text: str) -> float:
+        """Calculate polarity score for processed text"""
+        positive_markers = ['good', 'great', 'excellent', 'amazing', 'wonderful']
+        negative_markers = ['bad', 'terrible', 'horrible', 'awful', 'poor']
         
-        for text in texts:
-            # Count URLs before removing them
-            url_count = len(re.findall(TextSignals.URL_PATTERN, text))
-            url_count += len(re.findall(TextSignals.WWW_PATTERN, text))
-            analysis['url_count'] += url_count
+        pos_count = sum(marker in text for marker in positive_markers)
+        neg_count = sum(marker in text for marker in negative_markers)
+        has_but = 'but' in text
+        
+        score = 0.7 if has_but else 0.3
+        if pos_count > 0 and neg_count > 0:
+            score += 0.3
             
-            # Process with consistent lowercase handling
-            processed_text, is_sarcastic = self.preprocess_text(text)
-            
-            # All comparisons now use lowercase text
-            if is_sarcastic:
-                analysis['sarcasm_count'] += 1
-
-            if any(neg in processed_text for neg in TextSignals.NEGATION_WORDS):
-                analysis['negation_count'] += 1
-    
-            if any(token in processed_text for token in TextSignals.SPECIAL_TOKENS):
-                analysis['special_tokens_count'] += 1
-                
-            processed_texts.append(processed_text)
-            
-        return processed_texts, analysis
+        return min(score, 1.0)

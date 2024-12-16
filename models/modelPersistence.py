@@ -5,7 +5,7 @@ import sys
 import transformers  # Import transformers directly
 from transformers import DistilBertTokenizer
 from models.sentiment_model import EnhancedDistilBertForSentiment
-from config.model_config import ModelConfig
+from config.model_config import Config
 
 # If you need to debug the location, use this instead:
 print("Transformers package location:", transformers.__file__)
@@ -46,11 +46,11 @@ class ModelPersistence():
 
             # 3. Save model parameters and history
             model_params = {
-                'lstm_units': ModelConfig.LSTM_UNITS,
-                'feature_dim': ModelConfig.FEATURE_DIM,
-                'fusion_layers': ModelConfig.FUSION_LAYERS,
-                'dropout_rates': ModelConfig.DROPOUT_RATES,
-                'num_classes': ModelConfig.NUM_CLASSES
+                'lstm_units': Config.LSTM_UNITS,
+                'feature_dim': Config.FEATURE_DIM,
+                'fusion_layers': Config.FUSION_LAYERS,
+                'dropout_rates': Config.DROPOUT_RATES,
+                'num_classes': Config.NUM_CLASSES
             }
 
             # Convert history to regular Python types
@@ -155,8 +155,8 @@ class ModelPersistence():
 
                 # Build model with dummy input
                 dummy_input = {
-                    'input_ids': tf.zeros((1, ModelConfig.MAX_LENGTH), dtype=tf.int32),
-                    'attention_mask': tf.zeros((1, ModelConfig.MAX_LENGTH), dtype=tf.int32)
+                    'input_ids': tf.zeros((1, Config.MAX_LENGTH), dtype=tf.int32),
+                    'attention_mask': tf.zeros((1, Config.MAX_LENGTH), dtype=tf.int32)
                 }
                 _ = self.model(dummy_input)
                 print("Initialized model architecture")
@@ -180,7 +180,7 @@ class ModelPersistence():
             try:
                 self.model.compile(
                     optimizer=tf.keras.optimizers.Adam(
-                        learning_rate=ModelConfig.LEARNING_RATE),
+                        learning_rate=Config.LEARNING_RATE),
                     loss='sparse_categorical_crossentropy',
                     metrics=['accuracy']
                 )
@@ -201,7 +201,83 @@ class ModelPersistence():
             raise
         
 
-
-
-
-    
+    @staticmethod
+    def load_model_v2(model_version, epoch, base_dir=None):
+        """
+        Load a trained model with all its components based on version and epoch.
+        
+        Args:
+            model_version (str): Version of the model (e.g., '2.0.0')
+            epoch (int): The epoch number
+            base_dir (str): Base directory for saved models
+            
+        Returns:
+            tuple: (model, tokenizer, training_history, model_config)
+        """
+        if base_dir is None:
+            base_dir = '/Users/tayebekavousi/Desktop/sentimentAnalysisPortfolio/saved_models'
+        
+        try:
+            # Construct the model directory path
+            model_dir = os.path.join(base_dir, f'model_v{model_version}_epoch{epoch}')
+            if not os.path.exists(model_dir):
+                raise FileNotFoundError(f"Model directory not found: {model_dir}")
+            
+            # 1. Load checkpoint info
+            checkpoint_path = os.path.join(model_dir, 'checkpoint_info.json')
+            with open(checkpoint_path, 'r') as f:
+                checkpoint_info = json.load(f)
+                print("Loaded checkpoint information")
+                
+            # 2. Load model configuration
+            config_path = os.path.join(model_dir, 'model_config.json')
+            with open(config_path, 'r') as f:
+                model_config = json.load(f)
+                print("Loaded model configuration")
+                
+            # 3. Load training history
+            history_path = os.path.join(model_dir, 'training_history.json')
+            with open(history_path, 'r') as f:
+                history_data = json.load(f)
+                # Extract the actual history from the nested structure
+                training_history = history_data['history']
+                metrics_summary = history_data['metrics_summary']
+                print("Loaded training history")
+                
+            # 4. Load tokenizer
+            tokenizer_path = os.path.join(model_dir, 'tokenizer')
+            tokenizer = DistilBertTokenizer.from_pretrained(tokenizer_path)
+            print("Loaded tokenizer")
+            
+            # 5. Load the full model
+            model_path = os.path.join(model_dir, 'full_model')
+            model = tf.keras.models.load_model(
+                model_path,
+                custom_objects={
+                    'EnhancedDistilBertForSentiment': EnhancedDistilBertForSentiment,
+                    'TFDistilBertModel': transformers.TFDistilBertModel
+                }
+            )
+            print("Loaded full model")
+            
+            # 6. Compile the model with the original configuration
+            model.compile(
+                optimizer=tf.keras.optimizers.Adam(
+                    learning_rate=model_config.get('learning_rate', Config.LEARNING_RATE)
+                ),
+                loss=model_config.get('loss', 'sparse_categorical_crossentropy'),
+                metrics=['accuracy']
+            )
+            print("Model compiled successfully")
+            
+            print(f"\nSuccessfully loaded model version {model_version} from epoch {epoch}")
+            print(f"Best validation accuracy: {metrics_summary['best_val_accuracy']:.4f}")
+            print(f"Best validation loss: {metrics_summary['best_val_loss']:.4f}")
+            print(f"Total training epochs: {metrics_summary['total_epochs']}")
+            
+            return model, tokenizer, training_history, model_config
+            
+        except Exception as e:
+            print(f"Error during model loading: {str(e)}")
+            print("Attempted load location:", model_dir)
+            raise
