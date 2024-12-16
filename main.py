@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from transformers import DistilBertTokenizer
 from data.data_processing import DataProcessor
-from config.model_config import ModelConfig
+from config.model_config import Config
 from models.sentiment_model import EnhancedDistilBertForSentiment, ModelTrainer
 from models.modelPersistence import ModelPersistence
 
@@ -18,86 +18,82 @@ class SentimentAnalyzer:
         self.trainer = None
         
         # Data storage
-        self.train_texts = None
-        self.val_texts = None
-        self.test_texts = None
-        self.train_labels = None
-        self.val_labels = None
-        self.test_labels = None
+        self.processed_data = None
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
     
+   
     def process_data(self):
-        """Load, split and preprocess training data"""
-        # First load the raw data
-        df = self.data_processor.load_data()
-        # Then balance it
-        df = self.data_processor.create_balanced_dataset(df)
-        # Split data and store results in instance variables
-        self.train_texts, self.val_texts, self.test_texts, self.train_labels, self.val_labels, self.test_labels = self.data_processor.split_data(df)
-        # self.train_texts, self.val_texts, self.train_labels, self.val_labels = self.data_processor.split_data(df)
-        # Return for convenience, but also store in instance
-        return self.train_texts, self.val_texts,self.test_texts, self.train_labels, self.val_labels, self.test_labels
+        processed_data = self.data_processor.prepare_data()
+        self.processed_data = processed_data
+        return processed_data
     
 
     def initialize_model(self):
-        """Initialize and compile model"""
-        if self.train_texts is None:
-            raise ValueError("Please run process_data() before initializing the model")
-        
-        self.tokenizer = DistilBertTokenizer.from_pretrained(ModelConfig.BERT_MODEL)
+        self.tokenizer = DistilBertTokenizer.from_pretrained(Config.BERT_MODEL)
         self.model = EnhancedDistilBertForSentiment()
         self.trainer = ModelTrainer(self.model, self.tokenizer)
 
-        # Prepare simplified datasets (sentiment labels only)
-        self.train_dataset = self.trainer.prepare_dataset(
-            self.train_texts, 
-            {'sentiment': self.train_labels['sentiment']}
-        )
-        self.val_dataset = self.trainer.prepare_dataset(
-            self.val_texts,
-            {'sentiment': self.val_labels['sentiment']}
-        )
+        # Extract data from processed_data
+        train_texts = self.processed_data['dataframes']['train']['processed_text'].to_numpy()
+        val_texts = self.processed_data['dataframes']['val']['processed_text'].to_numpy()
+        
+        train_labels = {'sentiment': self.processed_data['model_inputs'][1]['sentiment']}
+        val_labels = {'sentiment': self.processed_data['model_inputs'][3]['sentiment']}
 
+        # Prepare datasets
+        self.train_dataset = self.trainer.prepare_dataset(train_texts, train_labels)
+        self.val_dataset = self.trainer.prepare_dataset(val_texts, val_labels)
         
     def predict(self, text):
-        """Generate sentiment analysis for input text"""
-        processed_text, _ = self.data_processor.preprocess_text(text)
+        processed_text = self.data_processor.preprocess_text(text)
         inputs = self.tokenizer(
             processed_text,
             return_tensors='tf',
             padding=True,
             truncation=True,
-            max_length=ModelConfig.MAX_LENGTH
-        )
-        
-        # Get model predictions (now returns single sentiment tensor)
+            max_length=Config.MAX_LENGTH
+         )
+            
+        # Get model predictions
         sentiment_logits = self.model(inputs)
         sentiment_probs = tf.nn.softmax(sentiment_logits, axis=-1).numpy()[0]
         
         # Map probabilities to sentiment labels
         sentiments = ['negative', 'neutral', 'positive']
+        
+        # Detect sarcasm using the data processor's detector
+        _, sarcasm_info = self.data_processor.sarcasm_detector.detect_sarcasm(processed_text)
+        
         return {
             'sentiment': {label: float(prob) for label, prob in zip(sentiments, sentiment_probs)},
-            'predicted': sentiments[np.argmax(sentiment_probs)]
+            'predicted': sentiments[np.argmax(sentiment_probs)],
+            'sarcasm_detected': bool(sarcasm_info is not None),
+            'sarcasm_type': sarcasm_info if sarcasm_info else None
         }
     
     def verify_model_architecture(self):
-        """ Verify model architecture by running a dummy input through the model and displaying the model summary. """
+        """Verify model architecture by running a dummy input through the model and displaying the model summary."""
         # Create dummy input
         dummy_input = self.tokenizer(
             "This is a dummy text",
             return_tensors='tf',
             padding=True,
             truncation=True,
-            max_length=ModelConfig.MAX_LENGTH
+            max_length=Config.MAX_LENGTH
         )
         
-        # Run dummy input through model to get output shape
-        output = self.model(dummy_input)
+        # Convert to proper format for model input
+        features = {
+            'input_ids': tf.convert_to_tensor(dummy_input['input_ids'], dtype=tf.int32),
+            'attention_mask': tf.convert_to_tensor(dummy_input['attention_mask'], dtype=tf.int32)
+        }
+        
+        # Run dummy input through model to build it
+        _ = self.model(features)
 
-        # Print model summary
+        # Now we can print the summary
         print("\nModel Architecture Summary:")
         self.model.summary()
             
@@ -110,6 +106,7 @@ class SentimentAnalyzer:
             self.val_dataset = None
             self.model = None
             self.trainer = None
+            self.processed_data = None
             
         except Exception as e:
             print(f"Warning: Cleanup failed: {str(e)}")

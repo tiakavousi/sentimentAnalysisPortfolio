@@ -81,145 +81,49 @@ class ModelEvaluator:
         
         return metrics
 
-    def visualize_performance(self, metrics, history=None):
-        """Visualize model performance metrics"""
-        if history:
-            self._plot_training_history(history)
+    def visualize_performance(self, metrics, history):
+        """
+        Visualize model performance with proper label handling.
         
-        target_names = ['Negative', 'Neutral', 'Positive']
-        
-        # First set: Main evaluation metrics
+        Args:
+            metrics (dict): Dictionary containing evaluation metrics
+            history (dict): Model training history
+        """
         plt.figure(figsize=(15, 5))
         
-        # 1. Confusion Matrix
-        plt.subplot(1, 3, 1)
-        sns.heatmap(
-            metrics['confusion_matrix'],
-            annot=True,
-            fmt='d',
-            cmap='Blues',
-            xticklabels=target_names,
-            yticklabels=target_names
-        )
-        plt.title('Confusion Matrix')
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        
-        # 2. Prediction Confidence
-        plt.subplot(1, 3, 2)
-        sns.histplot(metrics['confidence_scores'], bins=20)
-        plt.axvline(
-            metrics['avg_confidence'],
-            color='r',
-            linestyle='--',
-            label=f"Mean: {metrics['avg_confidence']:.3f}"
-        )
-        plt.title('Prediction Confidence Distribution')
-        plt.xlabel('Confidence Score')
-        plt.ylabel('Count')
-        plt.legend()
-        
-        # 3. Class-wise Accuracies
-        plt.subplot(1, 3, 3)
-        class_accuracies = [metrics['class_accuracies'][cls] for cls in target_names]
-        plt.bar(target_names, class_accuracies)
-        plt.title('Class-wise Accuracy')
-        plt.ylabel('Accuracy')
-        plt.ylim(0, 1)
-        
-        plt.tight_layout()
-        plt.show()
-        
-        # Second set: Detailed performance metrics
-        plt.figure(figsize=(15, 5))
-        
-        # 1. Class-wise Performance Metrics
+        # Training history plot
         plt.subplot(1, 2, 1)
-        report = metrics['classification_report']
-        perf_metrics = ['precision', 'recall', 'f1-score']
-        x = np.arange(len(perf_metrics))
-        width = 0.25
-        
-        for i, cls in enumerate(target_names):
-            # Use original case for accessing report
-            scores = [report[cls][m] for m in perf_metrics]
-            plt.bar(x + i*width, scores, width, label=cls)
-        
-        plt.xlabel('Metric')
-        plt.ylabel('Score')
-        plt.title('Class-wise Performance Metrics')
-        plt.xticks(x + width, perf_metrics)
+        plt.plot(history['accuracy'], label='Training Accuracy')
+        plt.plot(history['val_accuracy'], label='Validation Accuracy')
+        plt.title('Model Accuracy Over Time')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy')
         plt.legend()
         
-        # 2. Prediction Distribution
+        # Prediction distribution plot
         plt.subplot(1, 2, 2)
         dist = metrics['prediction_distribution']
-        plt.bar(target_names, [dist[cls]['percentage'] for cls in target_names])
+        
+        # Get actual keys from the distribution dictionary
+        available_classes = list(dist.keys())
+        
+        # Create the bar plot using available classes
+        percentages = [dist[cls]['percentage'] for cls in available_classes]
+        plt.bar(available_classes, percentages)
         plt.title('Prediction Distribution')
         plt.ylabel('Percentage')
+        plt.xticks(rotation=45)
         
         plt.tight_layout()
         plt.show()
         
-        # Print metrics report
-        print("\n=== Evaluation Metrics ===")
-        print(f"Overall Accuracy: {metrics['accuracy']:.4f}")
-        print(f"Average Confidence: {metrics['avg_confidence']:.4f}")
-        
-        print("\nClass-wise Performance:")
-        for cls in target_names:
+        # Print numerical metrics
+        print("\nModel Performance Metrics:")
+        print(f"Accuracy: {metrics['accuracy']:.4f}")
+        print(f"F1-Score: {metrics['f1_score']:.4f}")
+        print("\nClass-wise Metrics:")
+        for cls in available_classes:
             print(f"\n{cls}:")
-            print(f"Accuracy: {metrics['class_accuracies'][cls]:.4f}")
-            print(f"Precision: {report[cls]['precision']:.4f}")
-            print(f"Recall: {report[cls]['recall']:.4f}")
-            print(f"F1-score: {report[cls]['f1-score']:.4f}")
-        
-        print("\nPrediction Distribution:")
-        for cls in target_names:
-            dist = metrics['prediction_distribution'][cls]
-            print(f"{cls}: {dist['count']} ({dist['percentage']:.2f}%)")
-
-    def _plot_training_history(self, history):
-        """Plot training history metrics"""
-        history_dict = history.history if hasattr(history, 'history') else history
-        
-        plt.figure(figsize=(15, 5))
-        
-        # 1. Loss curves
-        plt.subplot(1, 3, 1)
-        plt.plot(history_dict['loss'], label='Training Loss', marker='o')
-        plt.plot(history_dict['val_loss'], label='Validation Loss', marker='o')
-        plt.title('Model Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # 2. Accuracy curves
-        plt.subplot(1, 3, 2)
-        plt.plot(history_dict['accuracy'], label='Training Accuracy', marker='o')
-        plt.plot(history_dict['val_accuracy'], label='Validation Accuracy', marker='o')
-        plt.title('Model Accuracy')
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        
-        # 3. Learning rate
-        if 'lr' in history_dict:
-            plt.subplot(1, 3, 3)
-            plt.plot(history_dict['lr'], marker='o')
-            plt.title('Learning Rate')
-            plt.xlabel('Epoch')
-            plt.ylabel('Learning Rate')
-            plt.yscale('log')
-            plt.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.show()
-        
-        # Print training summary
-        print("\n=== Training Summary ===")
-        print(f"Epochs trained: {len(history_dict['loss'])}")
-        print(f"Best validation loss: {min(history_dict['val_loss']):.4f}")
-        print(f"Best validation accuracy: {max(history_dict['val_accuracy']):.4f}")
+            print(f"Precision: {metrics['class_metrics'][cls]['precision']:.4f}")
+            print(f"Recall: {metrics['class_metrics'][cls]['recall']:.4f}")
+            print(f"F1-Score: {metrics['class_metrics'][cls]['f1_score']:.4f}")

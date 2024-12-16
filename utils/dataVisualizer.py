@@ -9,55 +9,63 @@ import re
 from data.data_processing import DataProcessor, TextSignals
 
 class DataVisualizer:
-    def __init__(self):
-        self.data_processor = DataProcessor()
+    def __init__(self, data_processor=None):
+        self.data_processor = data_processor if data_processor is not None else DataProcessor()
             
     @staticmethod
     def analyze_ratings_distribution(df):
         """Analyze and display the distribution of ratings"""
-        
         print("\nRating Distribution:")
         total_samples = len(df)
         
-        for rating in sorted(df['label'].unique()):
-            count = len(df[df['label'] == rating])
-            percentage = (count / total_samples) * 100
-            print(f"Rating {rating}: {count:,} reviews ({percentage:.1f}%)")
+        if 'label' in df.columns:
+            for rating in sorted(df['label'].unique()):
+                count = len(df[df['label'] == rating])
+                percentage = (count / total_samples) * 100
+                print(f"Rating {rating}: {count:,} reviews ({percentage:.1f}%)")
+        elif 'sentiment' in df.columns:
+            sentiment_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
+            for sentiment in sorted(df['sentiment'].unique()):
+                count = len(df[df['sentiment'] == sentiment])
+                percentage = (count / total_samples) * 100
+                print(f"{sentiment_map[sentiment]}: {count:,} reviews ({percentage:.1f}%)")
     
-
     @staticmethod
     def analyze_sentiment_distribution(df):
-        """Analyze and display sentiment distribution"""
-        # Calculate sentiment distribution
-        sentiment_counts = df['sentiment'].value_counts().sort_index()
-        
-        # Get actual sentiment values from the data
-        unique_sentiments = sorted(df['sentiment'].unique())
-        
-        # Create labels based on actual values
-        sentiment_labels = {}
-        for sentiment in unique_sentiments:
-            if sentiment < 0:
-                sentiment_labels[sentiment] = "Negative"
-            elif sentiment > 0:
-                sentiment_labels[sentiment] = "Positive"
-            else:
-                sentiment_labels[sentiment] = "Neutral"
+        """Analyze and display sentiment distribution including sarcasm info"""
+        sentiment_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
         
         print("\nSentiment Distribution:")
-        for sentiment in unique_sentiments:
-            print(f"{sentiment_labels[sentiment]}: {sentiment_counts[sentiment]:,}")
+        sentiment_counts = df['sentiment'].value_counts().sort_index()
+        for sentiment, count in sentiment_counts.items():
+            print(f"{sentiment_map[sentiment]}: {count:,}")
+        
+        if 'is_sarcastic' in df.columns:
+            print("\nSarcasm Distribution:")
+            sarcasm_counts = df['is_sarcastic'].value_counts()
+            print(f"Sarcastic: {sarcasm_counts.get(True, 0):,}")
+            print(f"Non-sarcastic: {sarcasm_counts.get(False, 0):,}")
+            
+            # Cross-tabulation of sentiment and sarcasm
+            print("\nSentiment-Sarcasm Distribution:")
+            cross_tab = pd.crosstab(df['sentiment'], df['is_sarcastic'])
+            for sentiment in sorted(df['sentiment'].unique()):
+                sarcastic = cross_tab.loc[sentiment, True] if True in cross_tab.columns else 0
+                non_sarcastic = cross_tab.loc[sentiment, False] if False in cross_tab.columns else 0
+                print(f"{sentiment_map[sentiment]}:")
+                print(f"  Sarcastic: {sarcastic:,}")
+                print(f"  Non-sarcastic: {non_sarcastic:,}")
     
     @staticmethod
     def analyze_text_lengths(texts):
         """Analyze and plot text length distribution by words"""
-        # Count words
-        word_lengths = [len(text.split()) for text in texts]
+        # Use processed text if available
+        if isinstance(texts, pd.Series):
+            texts = texts.tolist()
         
-        # Create figure
+        word_lengths = [len(str(text).split()) for text in texts]
+        
         plt.figure(figsize=(10, 5))
-        
-        # Word length distribution
         sns.histplot(word_lengths, bins=50)
         plt.title('Distribution of Text Lengths (Words)')
         plt.xlabel('Number of Words')
@@ -73,23 +81,10 @@ class DataVisualizer:
         print(f"Max length: {max(word_lengths)} words")
         print(f"Min length: {min(word_lengths)} words")
     
-
     @staticmethod
     def analyze_token_lengths(encoded_data, quantile=0.95):
-        """
-        Analyze and visualize the distribution of token lengths
-        
-        Parameters:
-        -----------
-        encoded_data : dict
-            Dictionary containing 'input_ids' and 'attention_mask' tensors
-        quantile : float
-            Quantile to use for length suggestion (default: 0.95)
-        """
-        # Get token lengths directly from attention mask
         token_lengths = tf.reduce_sum(encoded_data['attention_mask'], axis=1).numpy()
         
-        # Calculate statistics
         mean_len = np.mean(token_lengths)
         median_len = np.median(token_lengths)
         max_len = max(token_lengths)
@@ -101,7 +96,6 @@ class DataVisualizer:
         print(f"95th percentile: {q95_len:.1f}")
         print(f"Max: {max_len}")
         
-        # Plot distribution
         plt.figure(figsize=(10, 5))
         sns.histplot(token_lengths, bins=50)
         plt.axvline(q95_len, color='r', linestyle='--', label=f'{quantile*100}th percentile')
@@ -111,42 +105,24 @@ class DataVisualizer:
         plt.legend()
         plt.show()
         
-        return int(q95_len)  # Return suggested MAX_LENGTH
+        return int(q95_len)
     
     @staticmethod
     def visualize_wordclouds(df, min_word_length=2):
-        """
-        Generate and display word clouds for each sentiment class using the balanced dataset.
-        
-        Parameters:
-        -----------
-        df : pandas.DataFrame
-            The balanced dataset containing 'text' and 'sentiment' columns
-        min_word_length : int, optional
-            Minimum length of words to include in the word cloud (default=3)
-        """
+        """Generate and display word clouds for each sentiment class"""
         def preprocess_for_wordcloud(text):
-            # Convert to lowercase and remove special characters
             text = re.sub(r'[^a-zA-Z\s]', '', text.lower())
-            # Remove extra whitespace
             text = ' '.join(text.split())
-            # Filter out short words
             words = [word for word in text.split() if len(word) >= min_word_length]
             return ' '.join(words)
         
-        # Set up the plot
         fig, axes = plt.subplots(1, 3, figsize=(20, 6))
         sentiment_labels = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
         
-        # Generate word cloud for each sentiment
         for sentiment in range(3):
-            # Get texts for current sentiment
             texts = df[df['sentiment'] == sentiment]['text']
-            
-            # Combine all texts and preprocess
             combined_text = ' '.join(texts.apply(preprocess_for_wordcloud))
             
-            # Create and generate word cloud
             wordcloud = WordCloud(
                 width=800,
                 height=400,
@@ -156,7 +132,6 @@ class DataVisualizer:
                 random_state=42
             ).generate(combined_text)
             
-            # Plot the word cloud
             axes[sentiment].imshow(wordcloud, interpolation='bilinear')
             axes[sentiment].set_title(f'{sentiment_labels[sentiment]} Sentiment', fontsize=14, pad=20)
             axes[sentiment].axis('off')
@@ -164,7 +139,6 @@ class DataVisualizer:
         plt.tight_layout()
         plt.show()
         
-        # Print most common words for each sentiment
         print("\nMost Common Words by Sentiment:")
         for sentiment in range(3):
             texts = df[df['sentiment'] == sentiment]['text']
@@ -176,167 +150,86 @@ class DataVisualizer:
                 print(f"  {word}: {freq}")
 
 
-
     @staticmethod
     def analyze_text_signals(df):
         """
-        Analyze and visualize the distribution of sarcasm and negation in the dataset
-        and their relationship with sentiment classes.
-        
-        Args:
-            df: DataFrame containing the reviews with 'text' column
+        Analyze and visualize the distribution of sarcasm and polarity in the dataset
         """
-        # Process all texts to get sarcasm and negation info
-        import pandas as pd
-        results = []
-        processor = DataProcessor()
-        from data.data_processing import TextSignals  # Add explicit import
+        plt.figure(figsize=(15, 5))
         
-        print("Processing texts... This may take a while...\n")
+        # 1. Sarcasm Distribution
+        plt.subplot(1, 3, 1)
+        sarcasm_counts = df['is_sarcastic'].value_counts()
+        sns.barplot(x=['Not Sarcastic', 'Sarcastic'], y=sarcasm_counts.values)
+        plt.title('Distribution of Sarcasm')
+        plt.ylabel('Count')
         
-        for text in df['text']:
-            processed_text, is_sarcastic = processor.preprocess_text(text)
-            # Fix: Use TextSignals.NEGATION_WORDS for negation detection
-            has_negation = any(neg in processed_text.lower() for neg in TextSignals.NEGATION_WORDS)
-            results.append({
-                'sarcastic': is_sarcastic,
-                'has_negation': has_negation
-            })
+        # 2. Sarcasm by Sentiment
+        plt.subplot(1, 3, 2)
+        sentiment_sarcasm = pd.crosstab(
+            df['sentiment'],
+            df['is_sarcastic'],
+            normalize='index'
+        ) * 100
+        sentiment_sarcasm.plot(kind='bar')
+        plt.title('Sarcasm Distribution by Sentiment')
+        plt.xlabel('Sentiment Class')
+        plt.ylabel('Percentage')
+        plt.legend(['Not Sarcastic', 'Sarcastic'])
+        plt.xticks(range(3), ['Negative', 'Neutral', 'Positive'])
         
-        # Convert results to DataFrame for easy analysis
-        results_df = pd.DataFrame(results)
-        
-        # Create visualization of distributions and relationships
-        plt.figure(figsize=(15, 10))
-        
-        # 1. Overall Distribution of Signals
-        plt.subplot(2, 2, 1)
-        signal_counts = pd.DataFrame({
-            'Signal': ['Sarcasm', 'Negation'],
-            'Count': [results_df['sarcastic'].sum(), results_df['has_negation'].sum()]
-        })
-        sns.barplot(x='Signal', y='Count', data=signal_counts)
-        plt.title('Distribution of Text Signals')
-        
-        # 2. Signal Co-occurrence
-        plt.subplot(2, 2, 2)
-        cross_tab = pd.crosstab(results_df['sarcastic'], results_df['has_negation'])
-        sns.heatmap(cross_tab, annot=True, fmt='d', cmap='YlOrRd')
-        plt.title('Signal Co-occurrence')
-        plt.xlabel('Has Negation')
-        plt.ylabel('Is Sarcastic')
-        
-        # 3. Signals by Sentiment (if sentiment column exists)
-        if 'sentiment' in df.columns:
-            plt.subplot(2, 2, 3)
-            df_with_signals = df.copy()
-            df_with_signals['sarcastic'] = results_df['sarcastic']
-            df_with_signals['has_negation'] = results_df['has_negation']
-            
-            # Create grouped bar plot
-            sentiment_signals = pd.crosstab(
-                df_with_signals['sentiment'],
-                [df_with_signals['sarcastic']], 
-                normalize='index'
-            ) * 100
-            sentiment_signals.plot(kind='bar', ax=plt.gca())
-            plt.title('Sarcasm Distribution by Sentiment')
-            plt.xlabel('Sentiment Class')
-            plt.ylabel('Percentage')
-            plt.legend(['Not Sarcastic', 'Sarcastic'])
-            plt.xticks(range(3), ['Negative', 'Neutral', 'Positive'])
-            
-            # 4. Negation by Sentiment
-            plt.subplot(2, 2, 4)
-            sentiment_negation = pd.crosstab(
-                df_with_signals['sentiment'],
-                [df_with_signals['has_negation']], 
-                normalize='index'
-            ) * 100
-            sentiment_negation.plot(kind='bar', ax=plt.gca())
-            plt.title('Negation Distribution by Sentiment')
-            plt.xlabel('Sentiment Class')
-            plt.ylabel('Percentage')
-            plt.legend(['No Negation', 'Has Negation'])
-            plt.xticks(range(3), ['Negative', 'Neutral', 'Positive'])
+        # 3. Polarity Score Distribution
+        plt.subplot(1, 3, 3)
+        sns.histplot(df['polarity_score'], bins=20)
+        plt.title('Distribution of Polarity Scores')
+        plt.xlabel('Polarity Score')
+        plt.ylabel('Count')
         
         plt.tight_layout()
         plt.show()
         
         # Print statistical analysis
         total_reviews = len(df)
-        sarcastic_count = results_df['sarcastic'].sum()
-        negation_count = results_df['has_negation'].sum()
+        sarcastic_count = df['is_sarcastic'].sum()
         
         print(f"\n=== Text Signal Analysis ===")
-        print(f"Total Reviews Analyzed: {total_reviews:,}")
+        print(f"Total Reviews: {total_reviews:,}")
         
         print(f"\nSarcasm Detection:")
-        print(f"- Reviews with sarcasm: {sarcastic_count:,} ({(sarcastic_count/total_reviews*100):.2f}%)")
-        print(f"- Reviews without sarcasm: {total_reviews - sarcastic_count:,} "
-            f"({((total_reviews - sarcastic_count)/total_reviews*100):.2f}%)")
+        print(f"- Sarcastic reviews: {sarcastic_count:,} ({(sarcastic_count/total_reviews*100):.2f}%)")
+        print(f"- Non-sarcastic reviews: {total_reviews - sarcastic_count:,} "
+              f"({((total_reviews - sarcastic_count)/total_reviews*100):.2f}%)")
         
-        print(f"\nNegation Analysis:")
-        print(f"- Reviews with negation: {negation_count:,} ({(negation_count/total_reviews*100):.2f}%)")
-        print(f"- Reviews without negation: {total_reviews - negation_count:,} "
-            f"({((total_reviews - negation_count)/total_reviews*100):.2f}%)")
-        
-        print("\nSignal Co-occurrence:")
-        print(cross_tab)
-        
-        if 'sentiment' in df.columns:
-            print("\nDistribution across Sentiment Classes:")
-            sentiment_distribution = pd.crosstab(
-                df_with_signals['sentiment'],
-                [df_with_signals['sarcastic'], df_with_signals['has_negation']]
-            )
-            print("\nCounts for each combination (sentiment, sarcasm, negation):")
-            print(sentiment_distribution)
+        print("\nPolarity Score Statistics:")
+        print(f"- Mean: {df['polarity_score'].mean():.3f}")
+        print(f"- Median: {df['polarity_score'].median():.3f}")
+        print(f"- Std Dev: {df['polarity_score'].std():.3f}")
 
 
     @staticmethod
     def display_processed_reviews(df, num_samples=5):
-        """
-        Display a sample of reviews with their associated labels.
-        
-        Args:
-            df (pandas.DataFrame): DataFrame containing the reviews and labels
-            num_samples (int): Number of reviews to display (default: 5)
-        """
+        """Display a sample of reviews with their associated labels and metrics."""
         try:
-            # Create sample with all required fields
             samples = df.sample(n=min(num_samples, len(df)), random_state=42)
             
             for idx, row in samples.iterrows():
-                # Initialize DataProcessor once outside the loop
-                processor = DataProcessor()
-                
-                # Process the text to get sarcasm info
-                processed_text, is_sarcastic = processor.preprocess_text(row['text'])
-                
-                # Calculate polarity score
-                polarity_score = processor._calculate_polarity_score(row['text'])
-                
-                # Check for negation
-                has_negation = '_NEG_' in processed_text
-                
-                # Get sentiment label
                 sentiment_map = {0: 'Negative', 1: 'Neutral', 2: 'Positive'}
                 sentiment_label = sentiment_map.get(row['sentiment'], 'Unknown')
                 
-                # Print formatted output
                 print(f"\n{'='*80}")
                 print(f"Review #{idx}")
                 print(f"\nOriginal Text:")
                 print(f"{row['text'][:200]}..." if len(row['text']) > 200 else row['text'])
-                print(f"\nProcessed Text:")
-                print(f"{processed_text[:200]}..." if len(processed_text) > 200 else processed_text)
-                print(f"\nLabels:")
+                
+                if 'processed_text' in row:
+                    print(f"\nProcessed Text:")
+                    print(f"{row['processed_text'][:200]}..." if len(row['processed_text']) > 200 else row['processed_text'])
+                
+                print(f"\nLabels and Metrics:")
                 print(f"- Sentiment: {row['sentiment']} ({sentiment_label})")
-                print(f"- Sarcasm Detected: {is_sarcastic}")
-                print(f"- Contains Negation: {has_negation}")
-                print(f"- Polarity Score: {polarity_score:.2f}")
+                print(f"- Sarcasm Detected: {row['is_sarcastic']}")
+                print(f"- Polarity Score: {row['polarity_score']:.3f}")
                 
         except Exception as e:
             print(f"Error displaying reviews: {str(e)}")
-            print("Please ensure the DataFrame contains 'text' and 'sentiment' columns")
+            print("Please ensure the DataFrame contains required columns: 'text', 'sentiment', 'is_sarcastic', 'polarity_score'")

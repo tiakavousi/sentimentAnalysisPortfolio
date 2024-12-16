@@ -1,15 +1,20 @@
 import tensorflow as tf
 from transformers import TFDistilBertModel
 from transformers import DistilBertTokenizer
-from config.model_config import ModelConfig
+from config.model_config import Config
 
 class EnhancedDistilBertForSentiment(tf.keras.Model):
     def __init__(self):
         super().__init__()
-        self.distilbert = TFDistilBertModel.from_pretrained(ModelConfig.BERT_MODEL)
+        self.distilbert = TFDistilBertModel.from_pretrained(Config.BERT_MODEL)
         self.lstm = tf.keras.layers.Bidirectional(
-            tf.keras.layers.LSTM(ModelConfig.LSTM_UNITS, return_sequences=True)
+            tf.keras.layers.LSTM(Config.LSTM_UNITS, return_sequences=True)
         )
+        
+        # Initialize Layer Normalization layers
+        self.lstm_norm = tf.keras.layers.LayerNormalization()
+        self.sarcasm_norm = tf.keras.layers.LayerNormalization()
+        self.polarity_norm = tf.keras.layers.LayerNormalization()
         
         # Feature extraction layers
         self._init_feature_layers()
@@ -18,33 +23,35 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         self._init_fusion_layers()
         
         # Final classifier
-        self.final_classifier = tf.keras.layers.Dense(ModelConfig.NUM_CLASSES, activation='softmax', name='sentiment')
+        self.final_classifier = tf.keras.layers.Dense(Config.NUM_CLASSES, activation='softmax', name='sentiment')
 
     def _init_feature_layers(self):
         """Initialize separate feature extraction layers"""
         # Sarcasm detection branch
-        self.sarcasm_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
+        self.sarcasm_dense = tf.keras.Sequential([
+            tf.keras.layers.Dense(Config.FEATURE_DIM, activation='relu'),
+            tf.keras.layers.Dropout(Config.DROPOUT_RATES[0])
+        ])
         self.sarcasm_attention = tf.keras.layers.MultiHeadAttention(
-            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
+            num_heads=Config.NUM_HEAD, key_dim=Config.FEATURE_DIM
         )
         
-        # Negation detection branch
-        self.negation_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
-        self.negation_attention = tf.keras.layers.MultiHeadAttention(
-            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
-        )
         
         # Polarity analysis branch
-        self.polarity_dense = tf.keras.layers.Dense(ModelConfig.FEATURE_DIM, activation='relu')
+        self.polarity_dense = tf.keras.Sequential([
+            tf.keras.layers.Dense(Config.FEATURE_DIM, activation='relu'),
+            tf.keras.layers.Dropout(Config.DROPOUT_RATES[0])
+        ])
         self.polarity_attention = tf.keras.layers.MultiHeadAttention(
-            num_heads=4, key_dim=ModelConfig.FEATURE_DIM
+            num_heads=Config.NUM_HEAD, key_dim=Config.FEATURE_DIM
         )
 
+    
     def _init_fusion_layers(self):
-        """Initialize feature fusion layers"""
-        self.fusion_dense1 = tf.keras.layers.Dense(ModelConfig.FUSION_LAYERS[0], activation='relu')
-        self.fusion_dense2 = tf.keras.layers.Dense(ModelConfig.FUSION_LAYERS[1], activation='relu')
-        self.dropout = tf.keras.layers.Dropout(ModelConfig.DROPOUT_RATES[0])
+        self.fusion_dense1 = tf.keras.layers.Dense(Config.FUSION_LAYERS[0], activation='relu')
+        self.dropout1 = tf.keras.layers.Dropout(Config.DROPOUT_RATES[0])
+        self.fusion_dense2 = tf.keras.layers.Dense(Config.FUSION_LAYERS[1], activation='relu')
+        self.dropout2 = tf.keras.layers.Dropout(Config.DROPOUT_RATES[1])
 
     def call(self, inputs, training=False):
         # BERT embeddings
@@ -56,39 +63,37 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         
         # LSTM processing
         lstm_output = self.lstm(sequence_output)
-        
+        lstm_output = self.lstm_norm(lstm_output)
+
         # Feature extraction with attention
         sarcasm_features = self.sarcasm_dense(lstm_output)
         sarcasm_attended = self.sarcasm_attention(
             sarcasm_features, sarcasm_features, sarcasm_features
         )
-        
-        negation_features = self.negation_dense(lstm_output)
-        negation_attended = self.negation_attention(
-            negation_features, negation_features, negation_features
-        )
+        sarcasm_attended = self.sarcasm_norm(sarcasm_attended)
         
         polarity_features = self.polarity_dense(lstm_output)
         polarity_attended = self.polarity_attention(
             polarity_features, polarity_features, polarity_features
         )
-        
+        polarity_attended = self.polarity_norm(polarity_attended)
+
+
         # Pool features
         sarcasm_pooled = tf.reduce_mean(sarcasm_attended, axis=1)
-        negation_pooled = tf.reduce_mean(negation_attended, axis=1)
         polarity_pooled = tf.reduce_mean(polarity_attended, axis=1)
         
         # Concatenate features
         combined = tf.concat([
             sarcasm_pooled, 
-            negation_pooled, 
             polarity_pooled
         ], axis=-1)
         
         # Feature fusion
-        fused = self.fusion_dense1(combined)
-        fused = self.dropout(fused, training=training)
-        fused = self.fusion_dense2(fused)
+        fused = self.fusion_dense1(combined)   # Transform data
+        fused = self.dropout1(fused, training=training)  # Regularize first transformation
+        fused = self.fusion_dense2(fused)      # Second transformation
+        fused = self.dropout2(fused, training=training)  # Regularize second transformation
         
         # Final sentiment prediction
         sentiment = self.final_classifier(fused)
@@ -120,9 +125,9 @@ class ModelTrainer:
     def _create_learning_rate_schedule(self):
         """Create learning rate schedule"""
         return tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=ModelConfig.LEARNING_RATE,
-            decay_steps=ModelConfig.DECAY_STEPS,
-            decay_rate=ModelConfig.DECAY_RATE
+            initial_learning_rate=Config.LEARNING_RATE,
+            decay_steps=Config.DECAY_STEPS,
+            decay_rate=Config.DECAY_RATE
         )
     
     
@@ -131,7 +136,7 @@ class ModelTrainer:
             texts.tolist(),
             padding='max_length',
             truncation=True,
-            max_length=ModelConfig.MAX_LENGTH,
+            max_length=Config.MAX_LENGTH,
             return_tensors='tf'
         )
         
@@ -146,7 +151,7 @@ class ModelTrainer:
         return tf.data.Dataset.from_tensor_slices((
             features, 
             labels['sentiment']
-        )).batch(ModelConfig.BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
+        )).batch(Config.BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
 
 
     def train(self, train_dataset, val_dataset):
@@ -158,7 +163,7 @@ class ModelTrainer:
             history = self.model.fit(
                 train_dataset,
                 validation_data = val_dataset,
-                epochs = ModelConfig.EPOCHS,
+                epochs = Config.EPOCHS,
                 callbacks = self.get_callbacks()
             )
             
@@ -170,14 +175,16 @@ class ModelTrainer:
         return [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss',
-                patience=ModelConfig.EARLY_STOPPING_PATIENCE,
+                patience=Config.EARLY_STOPPING_PATIENCE,
                 restore_best_weights=True,
-                min_delta=ModelConfig.EARLY_STOPPING_MIN_DELTA
+                min_delta=Config.EARLY_STOPPING_MIN_DELTA
             ),
             tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_loss',
-                factor=0.2,  # More aggressive reduction (from 0.5)
+                # factor=0.2,  # More aggressive reduction (from 0.5)
+                factor=0.5,
                 patience=2,  # Increase from 1
-                min_lr=1e-7  # Lower minimum learning rate
+                # min_lr=1e-7  # Lower minimum learning rate
+                min_lr=5e-7 
             )
         ]
