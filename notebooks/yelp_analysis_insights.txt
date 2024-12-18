@@ -1,8 +1,0 @@
-Yelp Reviews Analysis Insights
-===========================
-
-Dataset Statistics:
-- Total number of reviews: 650000
-- Average rating: 2.00
-- Average review length: 423.57 characters
-- Average sentiment score: 0.00

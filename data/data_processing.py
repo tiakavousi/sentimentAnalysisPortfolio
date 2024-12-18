@@ -145,8 +145,6 @@ class SarcasmAugmenter:
 
     def _create_sarcastic_variant(self, text: str, sentiment: int) -> Tuple[str, bool]:
         """Create a sarcastic variant of the input text based on sentiment."""
-        text = text.lower().strip()
-        
         if sentiment == 0:  # negative
             pattern_key = 'negative_to_positive'
         elif sentiment == 2:  # positive
