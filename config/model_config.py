@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-import tensorflow as tf
-
 
 @dataclass
 class Config:
@@ -11,7 +9,7 @@ class Config:
     VALIDATION_SPLIT: float = 0.15
     TEST_SPLIT: float = 0.15
     NUM_CLASSES = 3
-    SAMPLES_PER_CLASS = 1000  # Reduced from 1500
+    SAMPLES_PER_CLASS = 1000
     SHUFFLE_BUFFER_SIZE = min(10000, SAMPLES_PER_CLASS * NUM_CLASSES)
     SARCASM_RATIO = 0.4
 
@@ -31,11 +29,9 @@ class Config:
     DECAY_STEPS = 1000
     DECAY_RATE = 0.95  # More gradual decay from 0.9
     EPOCHS = 10
-    
     EARLY_STOPPING_PATIENCE = 2  # Reduced from 3
     EARLY_STOPPING_MIN_DELTA = 0.01  # Increased from 0.005
-    
+    LOSS = 'sparse_categorical_crossentropy'
 
     # Model evaluation
-    LOSS = 'sparse_categorical_crossentropy'
     METRICS = ['accuracy']

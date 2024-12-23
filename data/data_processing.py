@@ -16,6 +16,10 @@ from typing import Optional, Tuple, Dict
 
 
 class SarcasmAugmenter:
+    """
+    A class for augmenting text data with sarcastic variants.
+    Handles generation of synthetic sarcastic text based on sentiment analysis.
+    """
     def __init__(self):
         self.sarcasm_patterns = {
             'positive_to_negative': [
