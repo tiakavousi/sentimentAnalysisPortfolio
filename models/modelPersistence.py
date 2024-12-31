@@ -1,124 +1,129 @@
-import datetime
+from config.model_config import Config
+from models.sentiment_model import EnhancedDistilBertForSentiment
 import tensorflow as tf
 import os
 import json
-import sys
-import transformers  # Import transformers directly
 from transformers import DistilBertTokenizer
-from models.sentiment_model import EnhancedDistilBertForSentiment
-from config.model_config import Config
 
-# If you need to debug the location, use this instead:
-print("Transformers package location:", transformers.__file__)
 
 class ModelPersistence():
     @staticmethod
-    def save_model(epoch, history, model, tokenizer, model_dir, version):
-        """Save the trained model and associated artifacts"""
+    def save_model_state(epoch, history, model, tokenizer, model_dir, version):
+        """
+        Save model state including architecture, weights, and custom objects.
+        
+        Args:
+            epoch (int): Current epoch number
+            history: Training history object
+            model: The trained model
+            tokenizer: The tokenizer used
+            model_dir (str): Directory to save the model
+            version (str): Version string
+        """
+        
+        # Create save directory
         save_dir = os.path.join(model_dir, f"model_v{version}_epoch{epoch}")
         os.makedirs(save_dir, exist_ok=True)
         
-        # Save model
+        # 1. Save model with full architecture and weights
         model_path = os.path.join(save_dir, "full_model")
-        tf.keras.models.save_model(model, model_path)
         
-        # Save tokenizer
+        # Save model configuration (architecture)
+        model_config = model.get_config()
+        config_path = os.path.join(save_dir, "model_architecture.json")
+        with open(config_path, 'w') as f:
+            json.dump(model_config, f, indent=2)
+        
+        # Save full model including weights
+        try:
+            # First try saving with model.save()
+            model.save(model_path, save_format='tf', include_optimizer=True)
+        except Exception as e:
+            print(f"Warning: Standard save failed ({str(e)}), trying alternative method...")
+            # Fallback: Save weights separately if full save fails
+            weights_path = os.path.join(save_dir, "model_weights")
+            model.save_weights(weights_path, save_format='tf')
+        
+        # 2. Save tokenizer
         tokenizer_path = os.path.join(save_dir, "tokenizer")
         tokenizer.save_pretrained(tokenizer_path)
         
-        # Save config
-        config = {
-            'model_params': {
-                'bert_model': Config.BERT_MODEL,
-                'lstm_units': Config.LSTM_UNITS,
-                'feature_dim': Config.FEATURE_DIM,
-                'fusion_layers': Config.FUSION_LAYERS,
-                'dropout_rates': Config.DROPOUT_RATES,
-                'num_classes': Config.NUM_CLASSES
-            },
-            'training_params': {
-                'max_length': Config.MAX_LENGTH,
-                'batch_size': Config.BATCH_SIZE,
-                'learning_rate': Config.LEARNING_RATE,
-                'num_epochs': Config.EPOCHS
-            },
-            'performance': {
-                'final_train_accuracy': history.history['accuracy'][-1],
-                'final_val_accuracy': history.history['val_accuracy'][-1],
-                'best_val_accuracy': max(history.history['val_accuracy'])
-            }
-        }
+        # 3. Save training history - convert tensors to floats
+        history_dict = {}
+        for key, value in history.history.items():
+            history_dict[key] = [float(val.numpy()) if tf.is_tensor(val) 
+                            else float(val) 
+                            for val in value]
         
-        config_path = os.path.join(save_dir, "config.json")
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
-        
-        print(f"Model saved to: {save_dir}")
+        history_path = os.path.join(save_dir, "training_history.json")
+        with open(history_path, 'w') as f:
+            json.dump(history_dict, f, indent=2)
+
+
+        print(f"Model state saved successfully to: {save_dir}")
         return save_dir
 
-
-   
+    
     @staticmethod
-    def load_model(model_path, return_config=True):
-        """Load a trained model and associated artifacts
+    def load_model_state(model_path):
+        """
+        Load a saved model state including architecture, weights, tokenizer, and history.
         
         Args:
             model_path (str): Path to the saved model directory
-            return_config (bool): Whether to return the saved configuration
             
         Returns:
-            tuple: (loaded_model, loaded_tokenizer, config) if return_config=True
-                (loaded_model, loaded_tokenizer) if return_config=False
-                
-        Raises:
-            FileNotFoundError: If model directory or required files are missing
-            ValueError: If loaded model/config is incompatible
+            dict: Dictionary containing loaded model components
+                'model': The loaded model with weights
+                'tokenizer': The loaded tokenizer
+                'history': Training history
+                'config': Model configuration
         """
+        print("\nLoading model state...")
+        
         try:
-            # Validate directory exists
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"Model directory not found: {model_path}")
+            # 1. Load model configuration
+            print("Loading model configuration...")
+            with open(os.path.join(model_path, "model_architecture.json"), 'r') as f:
+                model_config = json.load(f)
                 
-            # Load model
-            model_full_path = os.path.join(model_path, "full_model")
-            if not os.path.exists(model_full_path):
-                raise FileNotFoundError(f"Model not found in directory: {model_full_path}")
-                
-            print("Loading model architecture and weights...")
-            loaded_model = tf.keras.models.load_model(model_full_path)
+            # 2. Initialize model from config
+            print("Initializing model architecture...")
+            model = EnhancedDistilBertForSentiment()
+            # Create dummy input to build the model
+            dummy_input = {
+                'input_ids': tf.zeros((1, Config.MAX_LENGTH), dtype=tf.int32),
+                'attention_mask': tf.zeros((1, Config.MAX_LENGTH), dtype=tf.int32)
+            }
+            _ = model(dummy_input)  # Build the model
             
-            # Load tokenizer
-            tokenizer_path = os.path.join(model_path, "tokenizer")
-            if not os.path.exists(tokenizer_path):
-                raise FileNotFoundError(f"Tokenizer not found in directory: {tokenizer_path}")
-                
+            # 3. Load model weights
+            print("Loading model weights...")
+            model.load_weights(os.path.join(model_path, "full_model", "variables", "variables"))
+            
+            # 4. Load tokenizer
             print("Loading tokenizer...")
-            loaded_tokenizer = DistilBertTokenizer.from_pretrained(tokenizer_path)
+            tokenizer = DistilBertTokenizer.from_pretrained(os.path.join(model_path, "tokenizer"))
             
-            # Load config if requested
-            if return_config:
-                config_path = os.path.join(model_path, "config.json")
-                if not os.path.exists(config_path):
-                    raise FileNotFoundError(f"Config file not found: {config_path}")
-                    
-                print("Loading model configuration...")
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                    
-                # Validate configuration
-                required_keys = ['model_params', 'training_params', 'performance']
-                if not all(key in config for key in required_keys):
-                    raise ValueError("Invalid config file: missing required sections")
-                    
-                # Verify model architecture matches config
-                model_config = config['model_params']
-                if loaded_model.get_layer('bi_lstm').units != model_config['lstm_units']:
-                    raise ValueError("Loaded model architecture doesn't match saved configuration")
-                    
-                return loaded_model, loaded_tokenizer, config
-                
-            return loaded_model, loaded_tokenizer
+            # 5. Load training history
+            print("Loading training history...")
+            with open(os.path.join(model_path, "training_history.json"), 'r') as f:
+                history_dict = json.load(f)
+            
+            # Create a history object
+            class History:
+                def __init__(self, history_dict):
+                    self.history = history_dict
+            history = History(history_dict)
+            
+            print("Model state loaded successfully!")
+            
+            return {
+                'model': model,
+                'tokenizer': tokenizer,
+                'history': history,
+                'config': model_config
+            }
             
         except Exception as e:
-            print(f"Error loading model: {str(e)}")
-            raise
+            raise Exception(f"Error loading model state: {str(e)}")

@@ -17,10 +17,14 @@ from typing import Optional, Tuple, Dict
 
 class SarcasmAugmenter:
     """
-    A class for augmenting text data with sarcastic variants.
-    Handles generation of synthetic sarcastic text based on sentiment analysis.
+    Augments text data with synthetic sarcastic variants.
+    
+    Generates sarcastic text using predefined patterns, intensifiers, and emojis
+    while maintaining sentiment context. Focuses on converting negative sentiment
+    to sarcastic positive expressions.
     """
     def __init__(self):
+        """Initialize sarcasm patterns and modifiers for text augmentation."""
         self.sarcasm_patterns = {
             'positive_to_negative': [
                 # Disbelief patterns
@@ -148,13 +152,21 @@ class SarcasmAugmenter:
         ]
 
     def _create_sarcastic_variant(self, text: str, sentiment: int) -> Tuple[str, bool]:
-        """Create a sarcastic variant of the input text based on sentiment."""
+        """
+        Create a sarcastic variant of input text based on sentiment.
+        
+        Args:
+            text: Input text to convert
+            sentiment: Sentiment label (0=negative, 1=neutral, 2=positive)
+            
+        Returns:
+            Tuple of (augmented text, success flag)
+        """        
+        if sentiment != 0:
+            return text, False
+    
         if sentiment == 0:  # negative
             pattern_key = 'negative_to_positive'
-        elif sentiment == 2:  # positive
-            pattern_key = 'positive_to_negative'
-        else:  # neutral - randomly choose direction
-            pattern_key = random.choice(['positive_to_negative', 'negative_to_positive'])
             
         try:
             pattern = random.choice(self.sarcasm_patterns[pattern_key])
@@ -179,6 +191,16 @@ class SarcasmAugmenter:
 
 
     def create_balanced_sarcastic_dataset(self, df: pd.DataFrame, sarcasm_ratio: float = 0.4) -> pd.DataFrame:
+        """
+        Create balanced dataset with mix of natural and synthetic sarcasm.
+        
+        Args:
+            df: Input DataFrame containing text and sentiment labels
+            sarcasm_ratio: Target ratio of sarcastic samples per class
+            
+        Returns:
+            Balanced DataFrame with original and synthetic sarcastic samples
+        """
         balanced_data = []
         samples_per_class = Config.SAMPLES_PER_CLASS
         target_sarcastic = int(samples_per_class * sarcasm_ratio)
@@ -203,30 +225,31 @@ class SarcasmAugmenter:
                 })
             
             # Add synthetic sarcasm to reach target
-            remaining_sarcastic_needed = target_sarcastic - len(natural_sarcastic)
-            if remaining_sarcastic_needed > 0:
-                reviews_to_augment = class_data[
-                    ~class_data.index.isin(natural_sarcastic.index) & 
-                    (class_data['is_sarcastic'] == False)
-                ].sample(
-                    n=min(len(class_data), remaining_sarcastic_needed),
-                    random_state=Config.RANDOM_SEED
-                )
-                
-                for _, row in reviews_to_augment.iterrows():
-                    augmented, success = self._create_sarcastic_variant(
-                        row['processed_text'],
-                        row['sentiment']
+            if sentiment == 0:
+                remaining_sarcastic_needed = target_sarcastic - len(natural_sarcastic)
+                if remaining_sarcastic_needed > 0:
+                    reviews_to_augment = class_data[
+                        ~class_data.index.isin(natural_sarcastic.index) & 
+                        (class_data['is_sarcastic'] == False)
+                    ].sample(
+                        n=min(len(class_data), remaining_sarcastic_needed),
+                        random_state=Config.RANDOM_SEED
                     )
-                    if success:
-                        class_samples.append({
-                            'text': row['text'],
-                            'processed_text': augmented,
-                            'sentiment': row['sentiment'],
-                            'is_sarcastic': True,
-                            'sarcasm_source': 'augmentation'
-                        })
-            
+                    
+                    for _, row in reviews_to_augment.iterrows():
+                        augmented, success = self._create_sarcastic_variant(
+                            row['processed_text'],
+                            row['sentiment']
+                        )
+                        if success:
+                            class_samples.append({
+                                'text': row['text'],
+                                'processed_text': augmented,
+                                'sentiment': row['sentiment'],
+                                'is_sarcastic': True,
+                                'sarcasm_source': 'augmentation'
+                            })
+                
             # Fill remaining with non-sarcastic samples
             remaining_needed = samples_per_class - len(class_samples)
             if remaining_needed > 0:
@@ -268,6 +291,12 @@ class SarcasmAugmenter:
 
 
 class TextSignals:
+    """
+    Defines text preprocessing constants and patterns.
+    
+    Contains mappings for punctuation, emojis, contractions, and special tokens
+    used in text normalization and feature extraction.
+    """
     PUNCTUATION = ['!!!', '...', '!?', '??']
     EMOJI = ['🙄', '😒', '😏', ':/']
     # NEGATION_WORDS = ['not', 'never', "n't", 'no', 'neither', 'nor']
@@ -342,7 +371,15 @@ class TextSignals:
 
     @staticmethod
     def clean_urls(text):
-        """Remove URLs from text."""
+        """
+        Remove URLs from text using regex patterns.
+        
+        Args:
+            text: Input text containing potential URLs
+            
+        Returns:
+            Text with URLs removed and whitespace normalized
+        """
         # Remove http(s) URLs
         text = re.sub(TextSignals.URL_PATTERN, ' ', text)
         # Remove www. URLs
@@ -353,7 +390,14 @@ class TextSignals:
 
 
 class SarcasmDetector:
+    """
+    Detects natural sarcasm in text using linguistic markers.
+    
+    Uses both strong markers for direct sarcasm detection and contextual
+    markers that consider surrounding signals like punctuation and emojis.
+    """
     def __init__(self):
+        """Initialize sarcasm detection markers and rules."""
         self.strong_markers = [
             'yeah right',
             'suuure',
@@ -385,36 +429,63 @@ class SarcasmDetector:
         }
 
     def detect_sarcasm(self, text)-> Tuple[bool, Optional[str]]:
-            # Expect already lowercased text
-            for marker in self.strong_markers:
-                if marker in text:
-                    return True, marker
+        """
+        Detect sarcasm in input text.
+        
+        Checks for both strong sarcasm markers and contextual indicators
+        using punctuation, emojis, and negative signals.
+        
+        Args:
+            text: Preprocessed text to analyze
+            
+        Returns:
+            Tuple of (is_sarcastic flag, detected marker or None)
+        """
+
+        # Expect already lowercased text
+        for marker in self.strong_markers:
+            if marker in text:
+                return True, marker
+                
+        for marker, signals in self.contextual_markers.items():
+            if marker in text:
+                has_negative = any(signal in text for signal in signals['negative_signals'])
+                has_punctuation = any(punct in text for punct in TextSignals.PUNCTUATION)
+                has_emoji = any(emoji in text for emoji in TextSignals.EMOJI)
+                
+                if sum([has_negative, has_punctuation, has_emoji]) >= 2:
+                    return True, f"{marker} (contextual)"
                     
-            for marker, signals in self.contextual_markers.items():
-                if marker in text:
-                    has_negative = any(signal in text for signal in signals['negative_signals'])
-                    has_punctuation = any(punct in text for punct in TextSignals.PUNCTUATION)
-                    has_emoji = any(emoji in text for emoji in TextSignals.EMOJI)
-                    
-                    if sum([has_negative, has_punctuation, has_emoji]) >= 2:
-                        return True, f"{marker} (contextual)"
-                        
-            return False, None
+        return False, None
 
 
 
 class DataProcessor:
+    """
+    Main data processing pipeline for sentiment analysis dataset.
+    
+    Handles dataset loading, preprocessing, splitting, balancing, and
+    sarcasm augmentation. Prepares data in format required by model.
+    """
     def __init__(self):
+        """Initialize preprocessing components."""
         self.sarcasm_detector = SarcasmDetector()
         self.augmenter = SarcasmAugmenter()
 
     #1 load_data() - Loads Yelp dataset
     def load_data(self) -> pd.DataFrame:
+        """
+        Load and preprocess Yelp review dataset.
+        
+        Loads raw data, applies text preprocessing, detects natural sarcasm,
+        and assigns sentiment labels.
+        
+        Returns:
+            DataFrame with processed texts and initial labels
+        """
         # Load dataset
         dataset = load_dataset(Config.YELP_DATASET)
         df = pd.DataFrame(dataset['train'])
-        print("\nRaw Dataset\n")
-        print(df.head())
         
         # Preprocess all texts first
         df['processed_text'] = df['text'].apply(self.preprocess_text)
@@ -426,14 +497,23 @@ class DataProcessor:
         
         # Add sentiment labels
         df['sentiment'] = df['label'].apply(lambda x: 0 if x < 2 else (1 if x == 2 else 2))
-        print("\nSentiment added\n")
-        print(df.head())
         
         return df
     
     #2 split_data() - Splits into train/val/test
     def split_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-
+        """
+        Split data into train, validation and test sets.
+        
+        Performs stratified split based on sentiment labels to maintain
+        class distribution across splits.
+        
+        Args:
+            df: Input DataFrame to split
+            
+        Returns:
+            Tuple of (train_df, val_df, test_df)
+        """
         train_val_df, test_df = train_test_split(
             df,
             test_size = Config.TEST_SPLIT,
@@ -454,6 +534,19 @@ class DataProcessor:
     
     #3 _balance_classes() - Balances class distribution
     def _balance_classes(self, df: pd.DataFrame, samples_per_class: int = Config.SAMPLES_PER_CLASS) -> pd.DataFrame:
+        """
+        Balance class distribution while preserving natural sarcasm.
+        
+        Ensures equal samples per sentiment class while prioritizing
+        retention of naturally sarcastic samples.
+        
+        Args:
+            df: Input DataFrame to balance
+            samples_per_class: Target number of samples per class
+            
+        Returns:
+            Balanced DataFrame with preserved natural sarcasm
+        """
         df_balanced = pd.DataFrame()
         
         for sentiment in range(3):
@@ -479,6 +572,19 @@ class DataProcessor:
     
     #4 _process_split() - Processes each split
     def _process_split(self, df: pd.DataFrame, apply_augmentation: bool) -> pd.DataFrame:
+        """
+        Process individual data split with optional augmentation.
+        
+        Applies sarcasm augmentation to training data if specified,
+        and generates polarity scores for all samples.
+        
+        Args:
+            df: DataFrame split to process
+            apply_augmentation: Whether to apply sarcasm augmentation
+            
+        Returns:
+            Processed DataFrame with all required features
+        """
         # Apply augmentation only to train set
         if apply_augmentation and Config.SARCASM_RATIO > 0:
             df = self.augmenter.create_balanced_sarcastic_dataset(df)
@@ -500,7 +606,19 @@ class DataProcessor:
 
     #5 prepare_data() - Main orchestrator
     def prepare_data(self)->Tuple[np.ndarray, Dict, np.ndarray, Dict, np.ndarray, Dict]:
-        """Prepare dataset with proper train/val/test split and augmentation"""
+        """
+        Prepare complete dataset through full processing pipeline.
+        
+        Orchestrates the entire data preparation process:
+        1. Loads and preprocesses raw data
+        2. Balances classes
+        3. Splits data
+        4. Processes each split
+        5. Prepares model inputs
+        
+        Returns:
+            Dict containing processed DataFrames and model inputs
+        """
         print(f"Creating dataset with {Config.SAMPLES_PER_CLASS} samples per class")
     
         # 1. Load raw data
@@ -531,7 +649,17 @@ class DataProcessor:
 
     #6 _prepare_model_inputs() - Converts to model format
     def _prepare_model_inputs(self, train_df, val_df, test_df)-> Tuple[np.ndarray, Dict, np.ndarray, Dict, np.ndarray, Dict]:
-        """Convert processed dataframes into model inputs"""
+        """
+        Convert processed DataFrames to model input format.
+        
+        Args:
+            train_df: Training DataFrame
+            val_df: Validation DataFrame
+            test_df: Test DataFrame
+            
+        Returns:
+            Tuple of numpy arrays and label dictionaries for each split
+        """
         def prepare_split(df):
             return (
                 df['processed_text'].to_numpy(),
@@ -549,7 +677,18 @@ class DataProcessor:
 
     #7 preprocess_text() - Text preprocessing utility
     def preprocess_text(self, text: str) -> str:
-        """Single source of truth for text preprocessing"""
+        """
+        Apply full text preprocessing pipeline.
+        
+        Cleans URLs, expands contractions, normalizes case,
+        and handles special tokens and emojis.
+        
+        Args:
+            text: Raw input text
+            
+        Returns:
+            Preprocessed text ready for model
+        """
         # Clean URLs
         text = TextSignals.clean_urls(text)
         processed_text = text.lower()
@@ -566,7 +705,18 @@ class DataProcessor:
     
     #8 _calculate_polarity_score
     def _calculate_polarity_score(self, text: str) -> float:
-        """Calculate polarity score for processed text"""
+        """
+        Calculate polarity score for text.
+        
+        Uses presence of positive/negative markers and
+        'but' constructions to compute polarity.
+        
+        Args:
+            text: Preprocessed text to analyze
+            
+        Returns:
+            Polarity score between 0 and 1
+        """        
         positive_markers = ['good', 'great', 'excellent', 'amazing', 'wonderful']
         negative_markers = ['bad', 'terrible', 'horrible', 'awful', 'poor']
         

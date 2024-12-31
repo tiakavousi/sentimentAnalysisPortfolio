@@ -4,7 +4,15 @@ from transformers import DistilBertTokenizer
 from config.model_config import Config
 
 class EnhancedDistilBertForSentiment(tf.keras.Model):
+    """
+    Enhanced DistilBERT model for sentiment analysis with dual attention mechanism.
+    
+    Combines DistilBERT embeddings with bidirectional LSTM and parallel attention paths
+    for sarcasm and polarity analysis. Features layer normalization and dropout for
+    regularization.
+    """
     def __init__(self):
+        """Initialize model layers and components."""
         super().__init__()
         self.distilbert = TFDistilBertModel.from_pretrained(Config.BERT_MODEL)
         self.lstm = tf.keras.layers.Bidirectional(
@@ -26,7 +34,12 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         self.final_classifier = tf.keras.layers.Dense(Config.NUM_CLASSES, activation='softmax', name='sentiment')
 
     def _init_feature_layers(self):
-        """Initialize separate feature extraction layers"""
+        """
+        Initialize parallel feature extraction paths for sarcasm and polarity.
+        
+        Creates dense layers with dropout and multi-head attention mechanisms
+        for both sarcasm detection and polarity analysis branches.
+        """        
         # Sarcasm detection branch
         self.sarcasm_dense = tf.keras.Sequential([
             tf.keras.layers.Dense(Config.FEATURE_DIM, activation='relu'),
@@ -48,12 +61,28 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
 
     
     def _init_fusion_layers(self):
+        """
+        Initialize layers for feature fusion.
+        
+        Creates two dense layers with dropout for combining sarcasm
+        and polarity features into a unified representation.
+        """
         self.fusion_dense1 = tf.keras.layers.Dense(Config.FUSION_LAYERS[0], activation='relu')
         self.dropout1 = tf.keras.layers.Dropout(Config.DROPOUT_RATES[0])
         self.fusion_dense2 = tf.keras.layers.Dense(Config.FUSION_LAYERS[1], activation='relu')
         self.dropout2 = tf.keras.layers.Dropout(Config.DROPOUT_RATES[1])
 
     def call(self, inputs, training=False):
+        """
+        Forward pass of the model.
+
+        Args:
+            inputs: Dict containing 'input_ids' and 'attention_mask' tensors
+            training: Boolean indicating training mode
+
+        Returns:
+            Tensor of sentiment logits
+        """
         # BERT embeddings
         sequence_output = self.distilbert(
             inputs['input_ids'],
@@ -101,9 +130,24 @@ class EnhancedDistilBertForSentiment(tf.keras.Model):
         return sentiment
     
 
+
+
 class ModelTrainer:
+    """
+    Handles model training with custom learning rate scheduling and callbacks.
+    
+    Implements warm-up and decay learning rate schedule, early stopping,
+    and learning rate reduction on plateau.
+    """
 
     def __init__(self, model=None, tokenizer=None):
+        """
+        Initialize trainer with model and tokenizer.
+
+        Args:
+            model: Optional pre-trained model instance
+            tokenizer: Optional pre-configured tokenizer, defaults to DistilBERT
+        """
         self.model = model
         self.tokenizer = tokenizer or DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
         if model is not None:
@@ -111,6 +155,11 @@ class ModelTrainer:
 
 
     def _compile_model(self):
+        """
+        Compile model with AdamW optimizer and custom learning rate schedule.
+        
+        Uses sparse categorical crossentropy loss and accuracy metric.
+        """
         self.model.compile(
             optimizer=tf.keras.optimizers.AdamW(
                 learning_rate=self._create_learning_rate_schedule(),
@@ -123,15 +172,78 @@ class ModelTrainer:
 
     
     def _create_learning_rate_schedule(self):
-        """Create learning rate schedule"""
-        return tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=Config.LEARNING_RATE,
-            decay_steps=Config.DECAY_STEPS,
-            decay_rate=Config.DECAY_RATE
+        """
+        Create learning rate schedule with warmup and decay phases.
+        
+        Returns:
+            LearningRateSchedule object with configured warmup and decay
+        """
+        class WarmupDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+            def __init__(self, initial_lr, warmup_steps, decay_steps, decay_rate):
+                """
+                Initialize schedule parameters.
+
+                Args:
+                    initial_lr: Initial learning rate
+                    warmup_steps: Number of warmup steps
+                    decay_steps: Number of decay steps
+                    decay_rate: Rate of learning rate decay
+                """
+                super().__init__()
+                self.initial_lr = tf.cast(initial_lr, tf.float32)
+                self.warmup_steps = tf.cast(warmup_steps, tf.float32)
+                self.decay_steps = tf.cast(decay_steps, tf.float32)
+                self.decay_rate = tf.cast(decay_rate, tf.float32)
+                
+            def __call__(self, step):
+                """Calculate learning rate for current step."""
+                # Convert step to float32
+                step = tf.cast(step, tf.float32)
+                
+                # Warmup phase
+                warmup_pct = tf.minimum(step / self.warmup_steps, 1.0)
+                warmup_lr = self.initial_lr * warmup_pct
+                
+                # Decay phase calculation
+                decay_step = tf.maximum(step - self.warmup_steps, 0)
+                decay_factor = tf.pow(self.decay_rate, decay_step / self.decay_steps)
+                decay_lr = self.initial_lr * decay_factor
+                
+                # Choose between warmup and decay based on step
+                return tf.cond(
+                    step < self.warmup_steps,
+                    lambda: warmup_lr,
+                    lambda: decay_lr
+                )
+                
+            def get_config(self):
+                """Return configuration dictionary."""
+                return {
+                    "initial_lr": self.initial_lr,
+                    "warmup_steps": self.warmup_steps,
+                    "decay_steps": self.decay_steps,
+                    "decay_rate": self.decay_rate
+                }
+        
+        return WarmupDecaySchedule(
+            initial_lr=Config.LEARNING_RATE,    # 2e-5
+            warmup_steps=Config.WARMUP_STEPS,   # 500
+            decay_steps=Config.DECAY_STEPS,     # 3000
+            decay_rate=Config.DECAY_RATE        # 0.97
         )
-    
+        
     
     def prepare_dataset(self, texts, labels=None):
+        """
+        Prepare text data for model input.
+
+        Args:
+            texts: Array of input texts
+            labels: Optional dict containing sentiment labels
+
+        Returns:
+            TensorFlow dataset if labels provided, else features dict
+        """
         encoded = self.tokenizer(
             texts.tolist(),
             padding='max_length',
@@ -155,7 +267,16 @@ class ModelTrainer:
 
 
     def train(self, train_dataset, val_dataset):
-        """Train the model"""
+        """
+        Train model with configured datasets.
+
+        Args:
+            train_dataset: TensorFlow dataset for training
+            val_dataset: TensorFlow dataset for validation
+
+        Returns:
+            Training history
+        """
         # Create strategy for better error handling
         strategy = tf.distribute.get_strategy()
         
@@ -170,8 +291,13 @@ class ModelTrainer:
         return history
     
 
-    # factor=0.5, # patience=1,# min_lr=1e-6
     def get_callbacks(self):
+        """
+        Get training callbacks for early stopping and LR reduction.
+
+        Returns:
+            List containing EarlyStopping and ReduceLROnPlateau callbacks
+        """
         return [
             tf.keras.callbacks.EarlyStopping(
                 monitor='val_loss',

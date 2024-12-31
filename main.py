@@ -8,10 +8,17 @@ from models.modelPersistence import ModelPersistence
 
 
 class SentimentAnalyzer:
-    """Main class for sentiment analysis using DistilBERT with enhanced features"""
-
+    """
+        Manages sentiment analysis pipeline using DistilBERT with enhanced features.
+        Handles data processing, model initialization, training, and prediction
+    """
     def __init__(self, model=None):
-        """Initialize core components without loading data or model"""
+        """
+            Initialize analyzer components without loading data or model.
+            
+            Args:
+            model: Optional pre-trained model instance
+        """
         self.data_processor = DataProcessor()
         self.model = model
         self.tokenizer = None
@@ -25,12 +32,22 @@ class SentimentAnalyzer:
     
    
     def process_data(self):
+        """
+        Process raw data using DataProcessor.
+        
+        Returns:
+            Dict containing processed dataframes and model inputs
+        """
         processed_data = self.data_processor.prepare_data()
         self.processed_data = processed_data
         return processed_data
     
 
     def initialize_model(self):
+        """
+        Initialize DistilBERT model, tokenizer, and prepare training datasets.
+        Creates train and validation datasets from processed data.
+        """
         self.tokenizer = DistilBertTokenizer.from_pretrained(Config.BERT_MODEL)
         self.model = EnhancedDistilBertForSentiment()
         self.trainer = ModelTrainer(self.model, self.tokenizer)
@@ -47,6 +64,16 @@ class SentimentAnalyzer:
         self.val_dataset = self.trainer.prepare_dataset(val_texts, val_labels)
         
     def predict(self, text):
+        """
+        Analyze sentiment and sarcasm in input text.
+        
+        Args:
+            text: String to analyze
+            
+        Returns:
+            Dict containing sentiment probabilities, predicted sentiment,
+            and sarcasm detection results
+        """
         processed_text = self.data_processor.preprocess_text(text)
         inputs = self.tokenizer(
             processed_text,
@@ -74,8 +101,10 @@ class SentimentAnalyzer:
         }
     
     def verify_model_architecture(self):
-        """Verify model architecture by running a dummy input through the model and displaying the model summary."""
-        # Create dummy input
+        """
+            Verify model architecture using dummy input and display model summary.
+            Builds model by running a test prediction.
+        """        # Create dummy input
         dummy_input = self.tokenizer(
             "This is a dummy text",
             return_tensors='tf',
@@ -99,7 +128,10 @@ class SentimentAnalyzer:
             
 
     def cleanup(self):
-        """Clean up resources"""
+        """
+        Release memory and clear TensorFlow session.
+        Called after training or when shutting down the analyzer.
+        """        
         try:
             tf.keras.backend.clear_session()
             self.train_dataset = None
@@ -113,7 +145,13 @@ class SentimentAnalyzer:
 
 
 def main():
-    """Initialize model and train"""
+    """
+    Main entry point for training the sentiment analyzer.
+    Processes data, initializes model, trains, and performs cleanup.
+    
+    Returns:
+        Training history if successful, None if training fails
+    """    
     analyzer = None
     try:
         analyzer = SentimentAnalyzer()

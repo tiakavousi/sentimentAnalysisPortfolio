@@ -6,15 +6,36 @@ import seaborn as sns
 from collections import Counter
 from wordcloud import WordCloud
 import re
-from data.data_processing import DataProcessor, TextSignals
+from data.data_processing import DataProcessor
 
 class DataVisualizer:
+    """
+    Visualizes and analyzes sentiment analysis dataset characteristics.
+    
+    Provides methods for analyzing and visualizing rating distributions,
+    text lengths, word frequencies, sarcasm patterns, and text preprocessing
+    results.
+    """
     def __init__(self, data_processor=None):
+        """
+        Initialize visualizer with optional data processor.
+        
+        Args:
+            data_processor: Optional DataProcessor instance for text processing
+        """
         self.data_processor = data_processor if data_processor is not None else DataProcessor()
             
     @staticmethod
     def analyze_ratings_distribution(df):
-        """Analyze and display the distribution of ratings"""
+        """
+        Analyze and print distribution of ratings or sentiment labels.
+        
+        Handles both raw ratings (0-5) and processed sentiment labels
+        (negative/neutral/positive). Calculates percentages for each category.
+        
+        Args:
+            df: DataFrame containing either 'label' or 'sentiment' column
+        """        
         print("\nRating Distribution:")
         total_samples = len(df)
         
@@ -32,7 +53,16 @@ class DataVisualizer:
     
     @staticmethod
     def analyze_sentiment_distribution(df):
-        """Analyze and display sentiment distribution including sarcasm info"""
+        """
+        Analyze sentiment distribution and sarcasm patterns.
+        
+        Prints distribution of sentiment classes and their intersection
+        with sarcasm detection. Includes cross-tabulation of sentiment
+        and sarcasm presence.
+        
+        Args:
+            df: DataFrame with 'sentiment' and optional 'is_sarcastic' columns
+        """        
         sentiment_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
         
         print("\nSentiment Distribution:")
@@ -58,7 +88,15 @@ class DataVisualizer:
     
     @staticmethod
     def analyze_text_lengths(texts):
-        """Analyze and plot text length distribution by words"""
+        """
+        Analyze and visualize text length distribution.
+        
+        Creates histogram of text lengths and prints summary statistics.
+        Handles both Series and list inputs.
+        
+        Args:
+            texts: pandas Series or list of texts to analyze
+        """
         # Use processed text if available
         if isinstance(texts, pd.Series):
             texts = texts.tolist()
@@ -83,6 +121,19 @@ class DataVisualizer:
     
     @staticmethod
     def analyze_token_lengths(encoded_data, quantile=0.95):
+        """
+        Analyze distribution of tokenized text lengths.
+        
+        Creates histogram of token counts and calculates key statistics
+        including specified quantile for max length determination.
+        
+        Args:
+            encoded_data: Dict containing attention_mask from tokenizer
+            quantile: Float specifying quantile for length cutoff (default 0.95)
+            
+        Returns:
+            Integer suggesting maximum sequence length based on quantile
+        """
         token_lengths = tf.reduce_sum(encoded_data['attention_mask'], axis=1).numpy()
         
         mean_len = np.mean(token_lengths)
@@ -109,7 +160,16 @@ class DataVisualizer:
     
     @staticmethod
     def visualize_wordclouds(df, min_word_length=2):
-        """Generate and display word clouds for each sentiment class"""
+        """
+        Generate wordclouds for each sentiment class.
+        
+        Creates three wordclouds showing most frequent words in negative,
+        neutral, and positive reviews. Also prints top 10 words per class.
+        
+        Args:
+            df: DataFrame containing 'text' and 'sentiment' columns
+            min_word_length: Minimum length of words to include (default 2)
+        """
         def preprocess_for_wordcloud(text):
             text = re.sub(r'[^a-zA-Z\s]', '', text.lower())
             text = ' '.join(text.split())
@@ -153,7 +213,17 @@ class DataVisualizer:
     @staticmethod
     def analyze_text_signals(df):
         """
-        Analyze and visualize the distribution of sarcasm and polarity in the dataset
+        Analyze sarcasm and polarity patterns in dataset.
+        
+        Creates three plots:
+        1. Overall sarcasm distribution
+        2. Sarcasm distribution by sentiment
+        3. Distribution of polarity scores
+        
+        Also prints statistical summary of sarcasm and polarity metrics.
+        
+        Args:
+            df: DataFrame with 'is_sarcastic' and 'polarity_score' columns
         """
         plt.figure(figsize=(15, 5))
         
@@ -208,7 +278,16 @@ class DataVisualizer:
 
     @staticmethod
     def display_processed_reviews(df, num_samples=5):
-        """Display a sample of reviews with their associated labels and metrics."""
+        """
+        Display sample of reviews with their labels and metrics.
+        
+        Shows original text, processed text, sentiment, sarcasm detection,
+        and polarity score for randomly selected reviews.
+        
+        Args:
+            df: DataFrame containing review data
+            num_samples: Number of reviews to display (default 5)
+        """
         try:
             samples = df.sample(n=min(num_samples, len(df)), random_state=42)
             
