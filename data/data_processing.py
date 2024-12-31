@@ -190,24 +190,125 @@ class SarcasmAugmenter:
 
 
 
+    # def create_balanced_sarcastic_dataset(self, df: pd.DataFrame, sarcasm_ratio: float = 0.4) -> pd.DataFrame:
+    #     """
+    #     Create balanced dataset with mix of natural and synthetic sarcasm.
+        
+    #     Args:
+    #         df: Input DataFrame containing text and sentiment labels
+    #         sarcasm_ratio: Target ratio of sarcastic samples per class
+            
+    #     Returns:
+    #         Balanced DataFrame with original and synthetic sarcastic samples
+    #     """
+    #     balanced_data = []
+    #     samples_per_class = Config.SAMPLES_PER_CLASS
+    #     target_sarcastic = int(samples_per_class * sarcasm_ratio)
+        
+    #     print(f"Creating balanced dataset with:")
+    #     print(f"- {samples_per_class} reviews per class")
+    #     print(f"- {target_sarcastic} sarcastic reviews per class")
+        
+    #     for sentiment in [0, 1, 2]:
+    #         class_data = df[df['sentiment'] == sentiment]
+    #         class_samples = []
+            
+    #         # First, preserve naturally sarcastic samples
+    #         natural_sarcastic = class_data[class_data['is_sarcastic'] == True]
+    #         for _, row in natural_sarcastic.iterrows():
+    #             class_samples.append({
+    #                 'text': row['text'],
+    #                 'processed_text': row['processed_text'],
+    #                 'sentiment': row['sentiment'],
+    #                 'is_sarcastic': True,
+    #                 'sarcasm_source': 'natural'
+    #             })
+            
+    #         # Add synthetic sarcasm to reach target
+    #         if sentiment == 0:
+    #             remaining_sarcastic_needed = target_sarcastic - len(natural_sarcastic)
+    #             if remaining_sarcastic_needed > 0:
+    #                 reviews_to_augment = class_data[
+    #                     ~class_data.index.isin(natural_sarcastic.index) & 
+    #                     (class_data['is_sarcastic'] == False)
+    #                 ].sample(
+    #                     n=min(len(class_data), remaining_sarcastic_needed),
+    #                     random_state=Config.RANDOM_SEED
+    #                 )
+                    
+    #                 for _, row in reviews_to_augment.iterrows():
+    #                     augmented, success = self._create_sarcastic_variant(
+    #                         row['processed_text'],
+    #                         row['sentiment']
+    #                     )
+    #                     if success:
+    #                         class_samples.append({
+    #                             'text': row['text'],
+    #                             'processed_text': augmented,
+    #                             'sentiment': row['sentiment'],
+    #                             'is_sarcastic': True,
+    #                             'sarcasm_source': 'augmentation'
+    #                         })
+                
+    #         # Fill remaining with non-sarcastic samples
+    #         remaining_needed = samples_per_class - len(class_samples)
+    #         if remaining_needed > 0:
+    #             non_sarcastic_samples = class_data[
+    #                 ~class_data.index.isin(natural_sarcastic.index) &
+    #                 (class_data['is_sarcastic'] == False)
+    #             ].sample(
+    #                 n=min(remaining_needed, len(class_data)),
+    #                 random_state=Config.RANDOM_SEED,
+    #                 replace=True
+    #             )
+                
+    #             for _, row in non_sarcastic_samples.iterrows():
+    #                 class_samples.append({
+    #                     'text': row['text'],
+    #                     'processed_text': row['processed_text'],
+    #                     'sentiment': row['sentiment'],
+    #                     'is_sarcastic': False,
+    #                     'sarcasm_source': 'none'
+    #                 })
+            
+    #         balanced_data.extend(class_samples)
+        
+    #     balanced_df = pd.DataFrame(balanced_data)
+        
+    #     # Print distribution statistics
+    #     print("\nFinal distribution:")
+    #     for sentiment in [0, 1, 2]:
+    #         sentiment_data = balanced_df[balanced_df['sentiment'] == sentiment]
+    #         natural = sentiment_data[sentiment_data['sarcasm_source'] == 'natural']
+    #         augmented = sentiment_data[sentiment_data['sarcasm_source'] == 'augmentation']
+    #         print(f"\nSentiment {sentiment}:")
+    #         print(f"- Total samples: {len(sentiment_data)}")
+    #         print(f"- Natural sarcasm: {len(natural)}")
+    #         print(f"- Augmented sarcasm: {len(augmented)}")
+    #         print(f"- Total sarcastic: {len(natural) + len(augmented)} ({(len(natural) + len(augmented))/len(sentiment_data)*100:.1f}%)")
+        
+    #     return balanced_df.sample(frac=1, random_state=Config.RANDOM_SEED).reset_index(drop=True)
+
+
     def create_balanced_sarcastic_dataset(self, df: pd.DataFrame, sarcasm_ratio: float = 0.4) -> pd.DataFrame:
         """
-        Create balanced dataset with mix of natural and synthetic sarcasm.
+        Create balanced dataset with mix of natural and synthetic sarcasm for negative class only.
+        Maintains equal number of samples per class while preserving natural sarcasm.
         
         Args:
             df: Input DataFrame containing text and sentiment labels
-            sarcasm_ratio: Target ratio of sarcastic samples per class
+            sarcasm_ratio: Target ratio of sarcastic samples for negative class
             
         Returns:
-            Balanced DataFrame with original and synthetic sarcastic samples
+            Balanced DataFrame with samples_per_class samples in each class
         """
         balanced_data = []
         samples_per_class = Config.SAMPLES_PER_CLASS
         target_sarcastic = int(samples_per_class * sarcasm_ratio)
         
-        print(f"Creating balanced dataset with:")
+        print(f"\nCreating balanced dataset with:")
         print(f"- {samples_per_class} reviews per class")
-        print(f"- {target_sarcastic} sarcastic reviews per class")
+        print(f"- {target_sarcastic} sarcastic reviews for negative class")
         
         for sentiment in [0, 1, 2]:
             class_data = df[df['sentiment'] == sentiment]
@@ -224,7 +325,7 @@ class SarcasmAugmenter:
                     'sarcasm_source': 'natural'
                 })
             
-            # Add synthetic sarcasm to reach target
+            # Add synthetic sarcasm only for negative sentiment
             if sentiment == 0:
                 remaining_sarcastic_needed = target_sarcastic - len(natural_sarcastic)
                 if remaining_sarcastic_needed > 0:
@@ -249,17 +350,19 @@ class SarcasmAugmenter:
                                 'is_sarcastic': True,
                                 'sarcasm_source': 'augmentation'
                             })
-                
-            # Fill remaining with non-sarcastic samples
+            
+            # Calculate how many non-sarcastic samples we need
             remaining_needed = samples_per_class - len(class_samples)
+            
+            # Fill remaining with non-sarcastic samples
             if remaining_needed > 0:
                 non_sarcastic_samples = class_data[
                     ~class_data.index.isin(natural_sarcastic.index) &
                     (class_data['is_sarcastic'] == False)
                 ].sample(
-                    n=min(remaining_needed, len(class_data)),
+                    n=remaining_needed,
                     random_state=Config.RANDOM_SEED,
-                    replace=True
+                    replace=True  # Allow replacement to ensure we get enough samples
                 )
                 
                 for _, row in non_sarcastic_samples.iterrows():
@@ -281,14 +384,15 @@ class SarcasmAugmenter:
             sentiment_data = balanced_df[balanced_df['sentiment'] == sentiment]
             natural = sentiment_data[sentiment_data['sarcasm_source'] == 'natural']
             augmented = sentiment_data[sentiment_data['sarcasm_source'] == 'augmentation']
+            total_sarcastic = len(natural) + len(augmented)
+            
             print(f"\nSentiment {sentiment}:")
             print(f"- Total samples: {len(sentiment_data)}")
             print(f"- Natural sarcasm: {len(natural)}")
             print(f"- Augmented sarcasm: {len(augmented)}")
-            print(f"- Total sarcastic: {len(natural) + len(augmented)} ({(len(natural) + len(augmented))/len(sentiment_data)*100:.1f}%)")
+            print(f"- Total sarcastic: {total_sarcastic} ({total_sarcastic/len(sentiment_data)*100:.1f}%)")
         
         return balanced_df.sample(frac=1, random_state=Config.RANDOM_SEED).reset_index(drop=True)
-
 
 class TextSignals:
     """
